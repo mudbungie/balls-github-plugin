@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.203567685Z",
+  "delivered_in": null,
+  "depends_on": ["bl-db27"],
+  "description": "Add crates/balls-plugin-github-issues/ with main.rs, cli.rs matching the\nplugin protocol surface (auth-setup, auth-check, push, sync), and command\nmodules that noop. Wired to balls-github-shared for auth/http/config.\nReads from .balls/local/plugins/github-issues/ (separate auth-dir per\nEpic B's auth decision).\n\nWHY: a skeleton that registers and is invoked but does nothing is the\nsmallest possible proof that the participant-protocol wiring is right.\nEvery subsequent child adds *behavior*; this child proves the\n*invocation*. Splitting the wire-up from the behavior is what makes the\nbehavior-children's diffs reviewable.\n\nACCEPTANCE:\n- balls-plugin-github-issues binary builds and is installed by\n  `make install` (Makefile updated).\n- auth-setup reads a token from stdin and writes\n  <auth-dir>/token.json, mode 0600 (via shared::auth, parameterized).\n- auth-check returns 0 if GET /user succeeds with the stored token,\n  non-zero otherwise.\n- push --task ID prints `{}` (silent noop, per Plugin Protocol's\n  \"off-path tasks are no-ops\" convention).\n- sync (no --task) prints `{\"created\":[],\"updated\":[],\"deleted\":[]}`.\n- 100% coverage; every file under 300 lines.",
+  "external": {},
+  "id": "bl-be16",
+  "links": [],
+  "parent": "bl-6dbb",
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["plugin","issues"],
+  "title": "Binary skeleton: CLI, main, participant registration (noop on all commands)",
+  "type": "task",
+  "updated_at": "2026-05-19T22:13:44.203567685Z"
+}
