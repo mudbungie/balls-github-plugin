@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.315895414Z",
+  "delivered_in": null,
+  "depends_on": ["bl-80e7","bl-fd8e","bl-a071"],
+  "description": "Implement the participant's `merge` function for the\nexternal.github_issues.* projection overlap and the conformance tests\nthat lock the projection contract. Two layers:\n\n1. external.github_issues.* overlap: both sides moved the foreign\n   key under the issues plugin's own namespace. The plugin owns this\n   projection authoritatively; merge picks the plugin's view (which\n   is GH's view, since this projection mirrors GH). This is the\n   default merge for an owned projection per SPEC §5.\n\n2. task.status overlap when close_mirror == \"authoritative\": the\n   plugin claims write-authority on status for the close transition\n   *only*. The merge rule: GH's closed beats balls's open (mirrors\n   the close); balls's any-state beats GH's open (balls is the\n   workflow source of truth for non-close transitions). Conformance\n   test: state round-trips through balls without GH ever opening a\n   closed task back up.\n\nWHY structuring it this way: SPEC §5 says \"Plugins inherit a default\nmerge that picks the participant's view (since by §3, a participant\nauthoritatively owns its projection)\". For projection-overlap that's\nclean. The status-overlap is the deliberately-allowed special case;\nmaking the asymmetry explicit (GH-closed wins; balls non-close wins)\nprevents the operator's task being silently re-opened by an external\nstale view.\n\nACCEPTANCE:\n- merge() function in src/merge.rs, exported via the participant\n  protocol's native describe handshake.\n- Conformance tests:\n  * Disjoint projections compose (external.github_issues set on the\n    pull side, status set on the balls side, no conflict).\n  * Overlapping external.github_issues.* converges on the plugin's\n    view.\n  * Status close-mirror: GH closed + balls open → balls closes.\n  * Status close-mirror disabled: GH closed + balls open → conflict\n    surfaced (not silently overridden).\n  * Status non-close: GH open + balls in_progress → balls wins\n    (operator workflow protected).\n- 100% coverage; under 300 lines per file.",
+  "external": {},
+  "id": "bl-fd7c",
+  "links": [],
+  "parent": "bl-6dbb",
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["plugin","issues","participant"],
+  "title": "Conflict/merge: projection rules, status-overlap policy gating",
+  "type": "task",
+  "updated_at": "2026-05-19T22:13:44.315895414Z"
+}
