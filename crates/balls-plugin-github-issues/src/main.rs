@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod config;
 mod issues_api;
+mod merge;
 mod pull;
 mod pull_emit;
 
