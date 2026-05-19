@@ -4,7 +4,7 @@
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.300730355Z",
-  "delivered_in": null,
+  "delivered_in": "e007577ec45c14bb1808a911f4fc9346fbbfd447",
   "depends_on": ["bl-85c8"],
   "description": "Emit SyncReport `deleted` (or `updated` to status=deferred, depending\non policy) when a previously-mirrored GH issue vanishes from the API\n(404 on GET /repos/o/n/issues/N for a number stored on a balls task).\nBehavior driven by config.on_external_delete:\n- \"deferred\" (default): emit `updated` with status=\"deferred\" and\n  add_note=\"GH issue #N no longer found\"; the balls task survives,\n  flagged for operator attention.\n- \"closed\": emit `updated` with status=\"closed\" and the same note;\n  the balls task archives.\n- \"noop\": emit nothing; the orphan mapping persists until manually\n  cleared.\n\nWHY default deferred and not closed: \"set aside with intent to\nrevisit\" (SKILL.md \"Deferred vs closed\") describes the operator's\nposition after an external delete better than closed does. Closed\nmeans \"we decided not to do this / we delivered this\"; deferred is\n\"the external state surprised us; come back to it.\" Operator can\nflip it to closed manually if they conclude the work isn't coming\nback. Closed-by-default would archive work without operator review.\n\nACCEPTANCE:\n- Each policy branch tested via mockito 404 response on the issue\n  fetch; balls task ends in the documented status.\n- A mass-delete shaped attack (every issue 404s) is bounded by the\n  same bl-4673 backstops as B4c's creates-flood.\n- 100% coverage; under 300 lines per file.",
   "external": {},
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "in_progress",
+  "status": "review",
   "tags": ["plugin","issues","pull"],
   "title": "Pull: deleted entries (handle GH issue disappearance per on_external_delete policy)",
   "type": "task",
-  "updated_at": "2026-05-19T23:12:19.793628229Z"
+  "updated_at": "2026-05-19T23:16:55.882761683Z"
 }
