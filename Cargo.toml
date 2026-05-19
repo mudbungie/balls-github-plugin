@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/balls-github-shared", "crates/balls-plugin-github"]
+members = [
+    "crates/balls-github-shared",
+    "crates/balls-plugin-github",
+    "crates/balls-plugin-github-issues",
+]
 
 # Shared dep versions — every crate in the workspace pulls from here via
 # `dep.workspace = true`. Keeps the two binaries (and the eventual
