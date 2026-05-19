@@ -25,6 +25,16 @@ pub struct Task {
     pub id: String,
     pub title: String,
     pub status: String,
+    /// Long-form body. Issues plugin mirrors this to the GH issue body
+    /// (B3); forge plugin doesn't use it. Defaulted so older balls
+    /// task files without this field still decode.
+    #[serde(default)]
+    pub description: String,
+    /// Free-form labels. Issues plugin mirrors these to GH issue
+    /// labels (B3 puts the field in place; B4c reads them on auto-
+    /// create). Defaulted for forward-compat.
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub links: Vec<Link>,
     #[serde(default)]
