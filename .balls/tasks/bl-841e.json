@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.114660056Z",
+  "delivered_in": null,
+  "depends_on": [],
+  "description": "Restructure the existing balls-github-plugin repo into a cargo workspace so a\nsecond binary (balls-plugin-github-issues, Epic B) can share auth/http/config\ncode without coupling roles into a single participant.\n\nWHY: balls's plugin architecture (SPEC-lifecycle-sync-participants) is\n\"one participant = one name = one projection\". A forge plugin and an\nissue-tracker plugin are *different roles* with disjoint projections\n(external.github.* vs external.github_issues.*) and want independent per-event\nfailure policies. The right structure is two binaries with shared library\ncode — not one merged participant. README §\"Forge plugins vs issue-tracker\nplugins\" makes this explicit. This epic prepares the repo for that shape\nwithout changing the forge plugin's observable behavior.\n\nACCEPTANCE: workspace builds; `make check` passes (tests + clippy + 300-line\ncap + 100% coverage) across all crates; `balls-plugin-github` binary is\nbyte-equivalent in observable behavior (same CLI surface, same stdin/stdout\ncontracts, same auth-dir layout) — verified by the existing test suite\npassing unchanged plus a smoke test of the install path.\n\nChildren: workspace skeleton (A1), shared crate extraction (A2),\nREADME/Makefile rework (A3). Sequenced; each child reviewable independently.",
+  "external": {},
+  "id": "bl-841e",
+  "links": [],
+  "parent": null,
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["refactor","workspace"],
+  "title": "Convert balls-github-plugin to a cargo workspace (two-binaries-one-workspace prep)",
+  "type": "epic",
+  "updated_at": "2026-05-19T22:13:44.114660056Z"
+}
