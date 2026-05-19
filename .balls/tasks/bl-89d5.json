@@ -4,7 +4,7 @@
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:53:27.951413685Z",
-  "delivered_in": null,
+  "delivered_in": "2143e58ababa08ebcfbcaff0389e2b67525c11ad",
   "depends_on": [],
   "description": "B4a's pull.rs landed at 302 lines (cap is 299/300) because the pre-commit hook's non-zero exit was masked by a bash pipeline. Split tests/inline-cfg-mod into a sibling pull_tests.rs included via #[path]; the module pattern mirrors the forge plugin's pr_api.rs / pr_api_tests.rs (in spirit — pr_api.rs is single-file in the forge plugin today, but the split idiom is in use elsewhere in the repo and is the canonical fix per balls's file_decomposition_convention.\n\nACCEPTANCE: scripts/check-line-lengths.sh exits 0; coverage stays at 100%; tests still pass.",
   "external": {},
@@ -13,9 +13,9 @@
   "parent": null,
   "priority": 1,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "in_progress",
+  "status": "review",
   "tags": ["fix","cap"],
   "title": "Split pull.rs: lift tests to sibling file to fit the 300-line cap",
   "type": "task",
-  "updated_at": "2026-05-19T22:53:32.062760845Z"
+  "updated_at": "2026-05-19T22:55:21.143288440Z"
 }
