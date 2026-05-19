@@ -4,7 +4,7 @@
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.269520929Z",
-  "delivered_in": null,
+  "delivered_in": "f6e9cbe67456628fed3fd83e270557015e7ee4e1",
   "depends_on": ["bl-85c8"],
   "description": "Emit SyncReport `updated` entries for KnownUpdate classifications.\nBehavior:\n\n- GH issue state=closed AND balls task status != closed AND\n  config.close_mirror==\"authoritative\" → emit `updated` with\n  status=\"closed\" and add_note=\"GH issue #N closed externally\". This is\n  the AUTHORITATIVE CLOSE-MIRROR Epic B decided on.\n- GH title changed AND balls last_synced_title == balls task title →\n  emit `updated` with new title. (i.e. balls hasn't moved the field\n  since last sync; safe to overwrite.)\n- GH body changed AND balls last_synced_description == balls task\n  description → emit `updated` with new description.\n- GH and balls BOTH moved a field since last sync → emit `conflict`\n  per SPEC §8, with the GH view in remote_view; balls core's\n  per-event policy decides (required → abort; best-effort → log;\n  gating → stage).\n\nExternal record updated: external.github_issues.synced_at = GH\nupdated_at; per-field last_synced_value snapshots recorded so the next\nsync knows what \"unchanged since last sync\" means.\n\nWHY: SPEC §8.1 reject is for policy veto; SPEC §8 conflict is for\n\"two writers, can't auto-merge\". The pull-half conflict is the latter:\nboth sides are authoritative on their own copy of title/body but\nneither owns it across the seam. Surfacing it as a SPEC §8 conflict\nis what lets balls core's negotiation primitive handle it correctly\nrather than this plugin re-implementing merge.\n\nACCEPTANCE:\n- Close-mirror behavior verified by integration test (mockito + scratch\n  bl repo): GH-side state=closed → balls task status closes after sync.\n- Conflict surfaced when both sides edited title; required policy\n  aborts; best-effort logs to sync_status.\n- last_synced_value snapshot is bounded in size (use a content hash,\n  not the full content, for description) to honor SPEC §6 \"no new state\n  stores\" intent.\n- 100% coverage; under 300 lines per file.",
   "external": {},
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "in_progress",
+  "status": "review",
   "tags": ["plugin","issues","pull"],
   "title": "Pull: updated entries (state + content mirror, conflict-aware)",
   "type": "task",
-  "updated_at": "2026-05-19T22:57:20.438330971Z"
+  "updated_at": "2026-05-19T23:01:14.315145178Z"
 }
