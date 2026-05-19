@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-2644",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.221364477Z",
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["plugin","issues"],
   "title": "Config schema + external.github_issues.* projection declaration",
   "type": "task",
-  "updated_at": "2026-05-19T22:13:44.221364477Z"
+  "updated_at": "2026-05-19T22:38:27.722455321Z"
 }
