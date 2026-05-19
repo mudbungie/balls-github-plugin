@@ -4,7 +4,7 @@
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.331965807Z",
-  "delivered_in": null,
+  "delivered_in": "b5634f5213d1e5bfc5e4c304071910fe311efd47",
   "depends_on": ["bl-fd94","bl-fd7c"],
   "description": "Two layers of integration test:\n\n1. Mockito-driven end-to-end: a scratch bl repo, balls-plugin-github\n   and balls-plugin-github-issues both registered, mockito serving as\n   GH API. Drive a full lifecycle:\n   - bl create task → push half opens GH issue (mock POST)\n   - GH-side: simulate someone closing the issue → next bl sync\n     pulls it → balls task closes (authoritative close-mirror).\n   - Simulate a new GH issue → next bl sync auto-creates a balls\n     task → next push tags it with [bl-xxxx] on GH.\n   - Drive the forge plugin in parallel (deferred-mode review opens\n     a PR via mock, merge → gate child closes).\n   The harness lives in tests/ and is part of `make check`.\n\n2. Live sandbox plan: a documented test script that runs the same\n   sequence against a real GH repo (operator provides PAT and a\n   sandbox repo name). NOT part of `make check`; gated behind an\n   env var (BALLS_PLUGIN_LIVE_TEST=1) so coverage gate and CI are\n   not network-dependent. This is what we run at Epic-B close time\n   against a fresh dummy repo to confirm real GitHub connectivity.\n\nWHY two layers: 100% coverage in `make check` cannot depend on the\nreal GH API (flaky, rate-limited, requires secrets in CI). Mockito\nproves the wire-protocol contract; live test proves the real-API\ncontract. Both matter; separating them is what lets the gate stay\nstrict.\n\nACCEPTANCE:\n- tests/integration_mockito.rs drives the full lifecycle scenario;\n  failure modes (rate limit, conflict, ingest cap) covered.\n- tests/live_sandbox.sh is a runnable script (no tests under\n  cfg(test)) with documented env vars; reads PAT from $GITHUB_PAT;\n  prints PASS/FAIL per step; safe to re-run (idempotent on the\n  sandbox repo state).\n- The mockito test counts toward the 100% coverage gate; the live\n  test does not (it's behind cfg(feature = \"live_test\") or env-gated).\n- 100% coverage; under 300 lines per file.",
   "external": {},
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "in_progress",
+  "status": "review",
   "tags": ["plugin","issues","test"],
   "title": "Integration test harness: mockito end-to-end + live sandbox plan",
   "type": "task",
-  "updated_at": "2026-05-19T23:20:05.979149420Z"
+  "updated_at": "2026-05-19T23:22:00.993357098Z"
 }
