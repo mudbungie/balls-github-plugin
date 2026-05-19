@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-dc55",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.138595004Z",
@@ -13,9 +13,9 @@
   "parent": "bl-841e",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["refactor"],
   "title": "Workspace layout: top-level Cargo.toml + crates/ skeleton",
   "type": "task",
-  "updated_at": "2026-05-19T22:13:44.138595004Z"
+  "updated_at": "2026-05-19T22:14:23.553689328Z"
 }
