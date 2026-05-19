@@ -4,7 +4,7 @@
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T23:09:05.410799272Z",
-  "delivered_in": null,
+  "delivered_in": "9af2cd9c8158dd39cadc4e6fb8f9311fe361b2b1",
   "depends_on": [],
   "description": "B4c's tests/cli.rs landed at 301 lines because the pre-commit hook's failure was masked by 'git commit ... | tail -N && bl review' — tail's success exit overwrote git commit's failure exit, so the abort never propagated. Split the integration test file into focused submodules per the file-decomposition convention.",
   "external": {},
@@ -13,9 +13,9 @@
   "parent": null,
   "priority": 1,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "in_progress",
+  "status": "review",
   "tags": ["fix","cap"],
   "title": "Split issues plugin tests/cli.rs to fit 300-line cap",
   "type": "task",
-  "updated_at": "2026-05-19T23:09:09.453784921Z"
+  "updated_at": "2026-05-19T23:11:33.018029601Z"
 }
