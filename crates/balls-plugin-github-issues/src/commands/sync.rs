@@ -1,19 +1,14 @@
 //! Sync half (GH -> balls via SyncReport).
 //!
-//! B4a wires the end-to-end pull skeleton: load config + token, list
-//! issues from GH, parse the task list from stdin, classify each
-//! issue (loop-avoidance / known-update / auto-create / skipped per
-//! label filter). No SyncReport entries are emitted yet — B4b/c/d
-//! consume KnownUpdate / AutoCreate / KnownDelete respectively.
-//!
-//! Emitting an empty report (`{}`) is a valid no-op per balls's
-//! plugin protocol; the classification calls run but their results
-//! are dropped here. The unit tests on `pull::classify` are what
-//! prove the matching logic; B6's integration test wires the full
-//! lifecycle once B4b/c/d land.
+//! Wiring: list GH issues, classify each (`pull::classify`), and for
+//! each KnownUpdate ask `pull_emit::updated_from` whether to emit a
+//! SyncReport `updated` entry. B4b lands the close-mirror; B4c
+//! (auto-create from AutoCreate) and B4d (delete handling from
+//! KnownDelete) add the remaining two entry kinds.
 
 use crate::config::PluginConfig;
-use crate::pull::{classify, list_issues};
+use crate::pull::{classify, list_issues, Classification};
+use crate::pull_emit::updated_from;
 use crate::USER_AGENT;
 use balls_github_shared::auth;
 use balls_github_shared::error::{PluginError, Result};
@@ -39,14 +34,22 @@ pub fn run(_filter: Option<&str>, config_path: &Path, auth_dir: &Path) -> Result
         serde_json::from_str(&buf)?
     };
 
-    // B4a only classifies — no entries emitted. The classification
-    // touches every reachable branch; B4b/c/d add the per-kind
-    // emission and the tests against the classified shape.
     let issues = list_issues(&client, owner, name)?;
+    let mut report = SyncReport::default();
     for issue in &issues {
-        let _ = classify(issue, &tasks, &config);
+        if let Classification::KnownUpdate { task_id } = classify(issue, &tasks, &config) {
+            let task = tasks
+                .iter()
+                .find(|t| t.id == task_id)
+                .expect("KnownUpdate carries a task_id present in `tasks`");
+            if let Some(upd) = updated_from(issue, task, &config) {
+                report.updated.push(upd);
+            }
+        }
+        // AutoCreate / KnownDelete / Skip are unhandled here;
+        // B4c and B4d add the create and delete emission paths.
     }
 
-    println!("{}", serde_json::to_string(&SyncReport::default())?);
+    println!("{}", serde_json::to_string(&report)?);
     Ok(())
 }

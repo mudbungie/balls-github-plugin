@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod issues_api;
 mod pull;
+mod pull_emit;
 
 use clap::Parser;
 use cli::{Cli, Command};

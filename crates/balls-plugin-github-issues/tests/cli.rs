@@ -219,3 +219,37 @@ fn sync_accepts_empty_stdin_as_empty_task_list() {
         .success()
         .stdout(predicates::str::starts_with("{}"));
 }
+
+#[test]
+fn sync_emits_close_for_gh_closed_known_issue() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":5,"title":"Track [bl-aaaa]","state":"closed","html_url":"u",
+                 "updated_at":"2026-01-02T00:00:00Z","labels":[]}]"#,
+        )
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    let tasks = r#"[{"id":"bl-aaaa","title":"Track","status":"open",
+        "external":{"github_issues":{"issue":{
+            "number":5,"url":"u","state":"open",
+            "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
+            "last_synced_status":"open"}}}}]"#;
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin(tasks)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(r#""task_id":"bl-aaaa""#))
+        .stdout(predicates::str::contains(r#""status":"closed""#))
+        .stdout(predicates::str::contains("closed externally"));
+}
