@@ -15,13 +15,13 @@ ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
 echo "pre-commit: clippy..."
-cargo clippy --all-targets -- -D warnings 2>&1
+cargo clippy --workspace --all-targets -- -D warnings 2>&1
 
 echo "pre-commit: line lengths..."
 "$ROOT/scripts/check-line-lengths.sh"
 
 echo "pre-commit: tests..."
-cargo test --quiet 2>&1
+cargo test --workspace --quiet 2>&1
 
 echo "pre-commit: coverage..."
 "$ROOT/scripts/check-coverage.sh"

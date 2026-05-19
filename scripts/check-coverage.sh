@@ -15,6 +15,7 @@ THRESHOLD="${COVERAGE_THRESHOLD:-100}"
 
 echo "Running cargo tarpaulin (threshold ${THRESHOLD}%)..."
 cargo tarpaulin \
+    --workspace \
     --engine llvm \
     --skip-clean \
     --fail-under "$THRESHOLD" \

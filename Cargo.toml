@@ -1,15 +1,11 @@
-[package]
-name = "balls-plugin-github"
-version = "0.1.0"
-edition = "2021"
-description = "GitHub forge plugin for balls: deferred-mode delivery via pull requests"
-license = "MIT"
+[workspace]
+resolver = "2"
+members = ["crates/balls-plugin-github"]
 
-[[bin]]
-name = "balls-plugin-github"
-path = "src/main.rs"
-
-[dependencies]
+# Shared dep versions — every crate in the workspace pulls from here via
+# `dep.workspace = true`. Keeps the two binaries (and the eventual
+# balls-github-shared crate that A2 introduces) on one resolution.
+[workspace.dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
@@ -17,7 +13,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-[dev-dependencies]
 assert_cmd = "2"
 mockito = "1"
 predicates = "3"
