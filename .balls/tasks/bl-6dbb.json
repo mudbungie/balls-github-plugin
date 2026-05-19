@@ -2,7 +2,7 @@
   "branch": null,
   "claimed_by": null,
   "closed_at": null,
-  "closed_children": [{"closed_at":"2026-05-19T22:37:51.379203107Z","id":"bl-be16","title":"Binary skeleton: CLI, main, participant registration (noop on all commands)"},{"closed_at":"2026-05-19T22:41:42.687080553Z","id":"bl-2644","title":"Config schema + external.github_issues.* projection declaration"},{"closed_at":"2026-05-19T22:47:44.587708246Z","id":"bl-fd94","title":"Push half: balls -> GH issue create/update/close (idempotent)"}],
+  "closed_children": [{"closed_at":"2026-05-19T22:37:51.379203107Z","id":"bl-be16","title":"Binary skeleton: CLI, main, participant registration (noop on all commands)"},{"closed_at":"2026-05-19T22:41:42.687080553Z","id":"bl-2644","title":"Config schema + external.github_issues.* projection declaration"},{"closed_at":"2026-05-19T22:47:44.587708246Z","id":"bl-fd94","title":"Push half: balls -> GH issue create/update/close (idempotent)"},{"closed_at":"2026-05-19T22:52:26.784728616Z","id":"bl-85c8","title":"Pull skeleton: identity matching + loop avoidance"}],
   "created_at": "2026-05-19T22:13:44.186949034Z",
   "delivered_in": null,
   "depends_on": ["bl-db27"],
@@ -17,5 +17,5 @@
   "tags": ["plugin","issues","bidirectional"],
   "title": "balls-plugin-github-issues: bidirectional GitHub Issues <-> balls plugin",
   "type": "epic",
-  "updated_at": "2026-05-19T22:47:44.587730368Z"
+  "updated_at": "2026-05-19T22:52:26.784744906Z"
 }
