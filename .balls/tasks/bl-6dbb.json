@@ -2,7 +2,7 @@
   "branch": null,
   "claimed_by": null,
   "closed_at": null,
-  "closed_children": [],
+  "closed_children": [{"closed_at":"2026-05-19T22:37:51.379203107Z","id":"bl-be16","title":"Binary skeleton: CLI, main, participant registration (noop on all commands)"}],
   "created_at": "2026-05-19T22:13:44.186949034Z",
   "delivered_in": null,
   "depends_on": ["bl-db27"],
@@ -17,5 +17,5 @@
   "tags": ["plugin","issues","bidirectional"],
   "title": "balls-plugin-github-issues: bidirectional GitHub Issues <-> balls plugin",
   "type": "epic",
-  "updated_at": "2026-05-19T22:13:44.186949034Z"
+  "updated_at": "2026-05-19T22:37:51.379218526Z"
 }
