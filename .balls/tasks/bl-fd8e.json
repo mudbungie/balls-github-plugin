@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.284380482Z",
+  "delivered_in": null,
+  "depends_on": ["bl-85c8"],
+  "description": "Emit SyncReport `created` entries for AutoCreate classifications:\nGH issues with no stored number and no [bl-xxxx] tag in title. Entry\nshape:\n- title: issue title (will get [bl-xxxx] appended on the next push\n  cycle, per B3 push half)\n- description: issue body, sanitized via balls core's bl-b807\n  sanitizer (which it already does at the display boundary; here we\n  also bound the description size at intake — see size cap below)\n- tags: GH issue labels mapped 1:1 to balls tags (subject to\n  pathological-input guards)\n- external.github_issues: {number, url, source:\"github\",\n  synced_at:now}\n\nWHY this is the security-sensitive child: SyncReport `created` writes\nauthoritative new tasks into balls core's task tree from\nattacker-influenceable input (anyone with write access to GH issues\non the configured repo). bl-b807 sanitizer protects the *display*\nboundary; bl-4673 ingest backstops protect against DoS (oversized\nfields, creates-flood). This child must HONOR those backstops, not\nre-derive them.\n\nACCEPTANCE:\n- Per-issue body capped at the documented bl-4673 field-size limit;\n  oversized body truncated-and-warned in add_note (not silently\n  dropped — operator must see the truncation).\n- Per-sync `created`-count capped at the documented bl-4673 batch\n  limit; exceeding it warns and pages further creates to the next\n  sync invocation (no silent drop).\n- Labels mapping cap: pathological label set (1000+ labels) bounded\n  to first 100, ordered by GH label position; warning logged.\n- Tests for: simple auto-create, oversized body, oversized label set,\n  creates-flood (500 new issues in one poll), label with control\n  sequences (sanitized by bl-b807 path at display, but the ingest\n  itself must not panic or drop).\n- 100% coverage; under 300 lines per file.",
+  "external": {},
+  "id": "bl-fd8e",
+  "links": [],
+  "parent": "bl-6dbb",
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["plugin","issues","pull","security"],
+  "title": "Pull: created entries (auto-create balls task from new GH issue)",
+  "type": "task",
+  "updated_at": "2026-05-19T22:13:44.284380482Z"
+}
