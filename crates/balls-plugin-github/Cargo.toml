@@ -10,6 +10,7 @@ name = "balls-plugin-github"
 path = "src/main.rs"
 
 [dependencies]
+balls-github-shared = { path = "../balls-github-shared" }
 chrono = { workspace = true }
 clap = { workspace = true }
 reqwest = { workspace = true }

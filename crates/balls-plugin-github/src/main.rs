@@ -1,13 +1,16 @@
-mod auth;
 mod cli;
 mod commands;
 mod config;
-mod error;
-mod github;
+mod pr_api;
 mod types;
 
 use clap::Parser;
 use cli::{Cli, Command};
+
+/// User-Agent header value the forge plugin sends on every API request.
+/// Each plugin in the workspace declares its own so audit logs can tell
+/// them apart on the GitHub side.
+pub const USER_AGENT: &str = "balls-plugin-github";
 
 fn main() {
     let cli = Cli::parse();

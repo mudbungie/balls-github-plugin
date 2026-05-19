@@ -1,7 +1,8 @@
-use crate::auth;
 use crate::config::PluginConfig;
-use crate::error::{PluginError, Result};
-use crate::github::GithubClient;
+use crate::USER_AGENT;
+use balls_github_shared::auth;
+use balls_github_shared::error::{PluginError, Result};
+use balls_github_shared::http::GithubClient;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
@@ -22,7 +23,7 @@ pub fn run_with_io(
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<()> {
-    writeln!(output, "GitHub plugin auth setup for {}", config.repo)?;
+    writeln!(output, "GitHub plugin auth setup for {}", config.repo())?;
     write!(output, "Paste a GitHub token (PAT) and press Enter: ")?;
     output.flush()?;
 
@@ -33,7 +34,7 @@ pub fn run_with_io(
         return Err(PluginError::Auth("empty token".into()));
     }
 
-    let login = GithubClient::new(config.api_base(), token).current_user()?;
+    let login = GithubClient::new(config.api_base(), token, USER_AGENT).current_user()?;
     auth::save_token(auth_dir, token)?;
     writeln!(output, "Authenticated as {}. Token stored.", login)?;
     Ok(())
