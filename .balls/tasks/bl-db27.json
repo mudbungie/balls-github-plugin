@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-db27",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.171007985Z",
@@ -13,9 +13,9 @@
   "parent": "bl-841e",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["refactor","docs"],
   "title": "README + Makefile rework: workspace install, both bins, multi-crate make check",
   "type": "task",
-  "updated_at": "2026-05-19T22:13:44.171007985Z"
+  "updated_at": "2026-05-19T22:30:11.503821615Z"
 }
