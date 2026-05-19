@@ -17,6 +17,19 @@ fn write_config(dir: &Path, api_base: &str) -> std::path::PathBuf {
     p
 }
 
+fn write_config_with_label(dir: &Path, api_base: &str, label: &str) -> std::path::PathBuf {
+    let p = dir.join("github-issues.json");
+    std::fs::write(
+        &p,
+        format!(
+            r#"{{"repo":"o/n","api_base":"{}","target_label":"{}"}}"#,
+            api_base, label
+        ),
+    )
+    .unwrap();
+    p
+}
+
 fn write_token(dir: &Path) {
     std::fs::write(dir.join("token.json"), r#"{"token":"t"}"#).unwrap();
 }
@@ -168,34 +181,10 @@ fn sync_with_empty_repo_emits_empty_report() {
         .stdout(predicates::str::starts_with("{}"));
 }
 
-#[test]
-fn sync_classifies_but_emits_no_entries_in_b4a() {
-    // GH returns one unmatched issue; classify would say AutoCreate
-    // but B4a does not act on classifications — the report stays
-    // empty. B4c adds the entry-emitting wiring.
-    let mut server = mockito::Server::new();
-    server
-        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
-        .with_status(200)
-        .with_body(
-            r#"[{"number":42,"title":"External","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
-        )
-        .create();
-    let dir = tempfile::tempdir().unwrap();
-    let cfg = write_config(dir.path(), &server.url());
-    write_token(dir.path());
-
-    bin()
-        .args(["sync", "--config"])
-        .arg(&cfg)
-        .arg("--auth-dir")
-        .arg(dir.path())
-        .write_stdin("[]")
-        .assert()
-        .success()
-        .stdout(predicates::str::starts_with("{}"));
-}
+// (B4a's "classifies but emits no entries" test was removed when
+// B4c wired AutoCreate to emit `created` entries; the new
+// behavior is covered by sync_auto_creates_new_balls_task_for_unmatched_gh_issue
+// below.)
 
 #[test]
 fn sync_accepts_empty_stdin_as_empty_task_list() {
@@ -218,6 +207,63 @@ fn sync_accepts_empty_stdin_as_empty_task_list() {
         .assert()
         .success()
         .stdout(predicates::str::starts_with("{}"));
+}
+
+#[test]
+fn sync_label_filter_skips_non_matching_issues() {
+    // Issue lacks the configured target_label; classify yields
+    // Skip(LabelFilter); sync emits an empty report. Exercises the
+    // Skip arm of the sync match.
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":1,"title":"Off-label","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[{"name":"other"}]}]"#,
+        )
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config_with_label(dir.path(), &server.url(), "balls:track");
+    write_token(dir.path());
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin("[]")
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{}"));
+}
+
+#[test]
+fn sync_auto_creates_new_balls_task_for_unmatched_gh_issue() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":99,"title":"External report","state":"open","html_url":"https://gh/i/99",
+                 "updated_at":"2026-01-01T00:00:00Z","body":"details","labels":[{"name":"bug"}]}]"#,
+        )
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin("[]")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(r#""title":"External report""#))
+        .stdout(predicates::str::contains(r#""source":"github""#))
+        .stdout(predicates::str::contains(r#""bug""#));
 }
 
 #[test]

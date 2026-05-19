@@ -8,7 +8,7 @@
 
 use crate::config::PluginConfig;
 use crate::pull::{classify, list_issues, Classification};
-use crate::pull_emit::updated_from;
+use crate::pull_emit::{created_from, updated_from, MAX_CREATES_PER_SYNC};
 use crate::USER_AGENT;
 use balls_github_shared::auth;
 use balls_github_shared::error::{PluginError, Result};
@@ -37,17 +37,26 @@ pub fn run(_filter: Option<&str>, config_path: &Path, auth_dir: &Path) -> Result
     let issues = list_issues(&client, owner, name)?;
     let mut report = SyncReport::default();
     for issue in &issues {
-        if let Classification::KnownUpdate { task_id } = classify(issue, &tasks, &config) {
-            let task = tasks
-                .iter()
-                .find(|t| t.id == task_id)
-                .expect("KnownUpdate carries a task_id present in `tasks`");
-            if let Some(upd) = updated_from(issue, task, &config) {
-                report.updated.push(upd);
+        match classify(issue, &tasks, &config) {
+            Classification::KnownUpdate { task_id } => {
+                let task = tasks
+                    .iter()
+                    .find(|t| t.id == task_id)
+                    .expect("KnownUpdate carries a task_id present in `tasks`");
+                if let Some(upd) = updated_from(issue, task, &config) {
+                    report.updated.push(upd);
+                }
             }
+            Classification::AutoCreate => {
+                if report.created.len() < MAX_CREATES_PER_SYNC {
+                    report.created.push(created_from(issue));
+                }
+                // Past the cap, remaining AutoCreate candidates page
+                // to the next sync; the classifier still flags them
+                // (no projection exists for an un-mirrored issue).
+            }
+            Classification::KnownDelete { .. } | Classification::Skip(_) => {}
         }
-        // AutoCreate / KnownDelete / Skip are unhandled here;
-        // B4c and B4d add the create and delete emission paths.
     }
 
     println!("{}", serde_json::to_string(&report)?);
