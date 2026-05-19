@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-85c8",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.254275731Z",
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["plugin","issues","pull"],
   "title": "Pull skeleton: identity matching + loop avoidance",
   "type": "task",
-  "updated_at": "2026-05-19T22:13:44.254275731Z"
+  "updated_at": "2026-05-19T22:48:24.942451241Z"
 }
