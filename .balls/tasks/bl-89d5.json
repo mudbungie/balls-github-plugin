@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-89d5",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:53:27.951413685Z",
@@ -13,9 +13,9 @@
   "parent": null,
   "priority": 1,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["fix","cap"],
   "title": "Split pull.rs: lift tests to sibling file to fit the 300-line cap",
   "type": "task",
-  "updated_at": "2026-05-19T22:53:27.951413685Z"
+  "updated_at": "2026-05-19T22:53:32.062760845Z"
 }
