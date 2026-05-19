@@ -2,7 +2,7 @@
   "branch": null,
   "claimed_by": null,
   "closed_at": null,
-  "closed_children": [{"closed_at":"2026-05-19T22:17:21.595302545Z","id":"bl-dc55","title":"Workspace layout: top-level Cargo.toml + crates/ skeleton"},{"closed_at":"2026-05-19T22:30:02.507657533Z","id":"bl-0fe5","title":"Extract balls-github-shared crate (auth, http, config, error, types)"}],
+  "closed_children": [{"closed_at":"2026-05-19T22:17:21.595302545Z","id":"bl-dc55","title":"Workspace layout: top-level Cargo.toml + crates/ skeleton"},{"closed_at":"2026-05-19T22:30:02.507657533Z","id":"bl-0fe5","title":"Extract balls-github-shared crate (auth, http, config, error, types)"},{"closed_at":"2026-05-19T22:32:53.050297820Z","id":"bl-db27","title":"README + Makefile rework: workspace install, both bins, multi-crate make check"}],
   "created_at": "2026-05-19T22:13:44.114660056Z",
   "delivered_in": null,
   "depends_on": [],
@@ -17,5 +17,5 @@
   "tags": ["refactor","workspace"],
   "title": "Convert balls-github-plugin to a cargo workspace (two-binaries-one-workspace prep)",
   "type": "epic",
-  "updated_at": "2026-05-19T22:30:02.507679063Z"
+  "updated_at": "2026-05-19T22:32:53.050313770Z"
 }
