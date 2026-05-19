@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.138595004Z",
+  "delivered_in": null,
+  "depends_on": [],
+  "description": "Restructure repo so the top-level Cargo.toml is a [workspace] manifest and\nthe current single-crate code moves under crates/balls-plugin-github/. No\nshared crate yet — A2 lifts code into it; this child only changes layout so\nA2's diff is purely about code movement, not also about manifest reshape.\n\nWHY: doing layout and lift in one ball makes the diff impossible to review\n(\"did anything change semantically, or did it just move?\"). Splitting them\nkeeps each PR's intent legible. Workspace pattern matches the convention\nused by other multi-binary Rust projects; balls itself is single-crate\nbecause it's one binary, so there's no in-repo precedent — establishing the\nlayout once here is the load-bearing decision.\n\nACCEPTANCE:\n- Root Cargo.toml is `[workspace] members = [\"crates/balls-plugin-github\"]`\n  with workspace-level [workspace.dependencies] for shared dep versions.\n- crates/balls-plugin-github/Cargo.toml owns the binary, references workspace\n  deps via `dep.workspace = true`.\n- All existing source moves verbatim into crates/balls-plugin-github/src/ —\n  no behavior changes, no rename changes, just `git mv`.\n- `cargo build --release` produces a working balls-plugin-github binary.\n- `make check` passes unchanged; 100% coverage maintained.\n- Cargo.lock at repo root (workspace-level, not per-crate).",
+  "external": {},
+  "id": "bl-dc55",
+  "links": [],
+  "parent": "bl-841e",
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["refactor"],
+  "title": "Workspace layout: top-level Cargo.toml + crates/ skeleton",
+  "type": "task",
+  "updated_at": "2026-05-19T22:13:44.138595004Z"
+}
