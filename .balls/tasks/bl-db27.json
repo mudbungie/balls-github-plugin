@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-19T22:13:44.171007985Z",
+  "delivered_in": null,
+  "depends_on": ["bl-0fe5"],
+  "description": "Update README to describe the workspace + the two-plugin model (forge and\nissues), with a pointer to the SPEC-lifecycle-sync-participants rationale\nfor why they are separate participants. Rework Makefile so `make install`\ninstalls both binaries to ~/.local/bin, `make check` runs the full gate\nacross the workspace, and `make build` builds both. Add a CONTRIBUTING-style\nnote documenting the disjoint-projection invariant.\n\nWHY (philosophy in long-lived artifacts): future maintainers — including\nagents in this repo — will reach for \"just merge them into one binary, the\nPAT's the same anyway\" without the README explaining why the architecture\nforbids it. Bake the why into the README, not the commit message that gets\nlost in `git log`. The Makefile's `make check` is the contract; it's the\nthing the pre-commit hook runs and the thing that future agents trust.\n\nACCEPTANCE:\n- README explains: what the workspace is, what each binary does\n  (one paragraph each), the disjoint-projection rule with one concrete\n  example, and how to install/configure each plugin independently.\n- README has explicit \"don't merge these\" note for future agents, citing\n  SPEC-lifecycle-sync-participants §3 (projection) and §5 (Participant\n  contract: one name).\n- `make install` installs both bins (only balls-plugin-github exists at\n  this point; entry for balls-plugin-github-issues stub-handled gracefully\n  — `install -m 0755 ... || true` is wrong; instead Makefile lists only\n  what exists today and Epic B's B7 adds the second).\n- `make check` runs `cargo test --workspace`, workspace-wide clippy\n  `-D warnings`, line-length check across all crates, coverage across the\n  workspace at 100%.",
+  "external": {},
+  "id": "bl-db27",
+  "links": [],
+  "parent": "bl-841e",
+  "priority": 2,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["refactor","docs"],
+  "title": "README + Makefile rework: workspace install, both bins, multi-crate make check",
+  "type": "task",
+  "updated_at": "2026-05-19T22:13:44.171007985Z"
+}
