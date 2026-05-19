@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-f94e",
+  "claimed_by": "mark",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-19T22:13:44.348539002Z",
@@ -13,9 +13,9 @@
   "parent": "bl-6dbb",
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["plugin","issues","docs"],
   "title": "README for balls-plugin-github-issues + workspace docs cleanup",
   "type": "task",
-  "updated_at": "2026-05-19T22:13:44.348539002Z"
+  "updated_at": "2026-05-19T23:22:12.870540289Z"
 }
