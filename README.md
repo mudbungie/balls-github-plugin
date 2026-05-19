@@ -7,7 +7,7 @@ auth/HTTP/config:
 | Crate | What it is |
 |---|---|
 | [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge plugin.** Drives the deferred-mode pull-request gate: `bl review` pushes the work branch and opens a gate child; this plugin opens the PR; once it merges on GitHub, sync closes the gate child so the parent's `bl close` unblocks. Implements `SPEC-forge-gated-delivery.md` §9. |
-| `balls-plugin-github-issues` *(not yet shipped — Epic B in this workspace's bl store)* | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back via `sync`/SyncReport. |
+| [`balls-plugin-github-issues`](crates/balls-plugin-github-issues/) | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back via `sync`/SyncReport. |
 | [`balls-github-shared`](crates/balls-github-shared/) | Library crate. Token I/O, the base `GithubClient` (auth + status mapping + `GET /user`), the shared `RepoConfig` (repo + api_base), and the plugin-protocol types (`Task`, `Link`, `SyncReport`, `SyncUpdate`). |
 
 ## Why two binaries, not one
@@ -73,7 +73,7 @@ with its configuration schema, the command/protocol surface, and a
 worked end-to-end example:
 
 - [`crates/balls-plugin-github/README.md`](crates/balls-plugin-github/README.md) — forge plugin.
-- *(issues plugin README ships with Epic B child B7.)*
+- [`crates/balls-plugin-github-issues/README.md`](crates/balls-plugin-github-issues/README.md) — issue-tracker plugin (bidirectional GH Issues mirror).
 
 ## License
 
