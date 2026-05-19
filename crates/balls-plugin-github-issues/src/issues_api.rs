@@ -71,6 +71,12 @@ pub trait IssuesTaskExt {
     fn issue_blob(&self) -> Option<&Value>;
     fn issue_number(&self) -> Option<u64>;
     fn last_synced_status(&self) -> Option<&str>;
+    /// The RFC3339 `synced_at` last written by push (B3). Used by
+    /// B4a's classify for loop avoidance: a GH issue whose
+    /// `updated_at` is older than (or equal to) this is one we
+    /// already saw and reflects our own write coming back via the
+    /// API.
+    fn synced_at(&self) -> Option<&str>;
 }
 
 impl IssuesTaskExt for Task {
@@ -95,6 +101,12 @@ impl IssuesTaskExt for Task {
     fn last_synced_status(&self) -> Option<&str> {
         self.issue_blob()
             .and_then(|v| v.get("last_synced_status"))
+            .and_then(|v| v.as_str())
+    }
+
+    fn synced_at(&self) -> Option<&str> {
+        self.issue_blob()
+            .and_then(|v| v.get("synced_at"))
             .and_then(|v| v.as_str())
     }
 }
