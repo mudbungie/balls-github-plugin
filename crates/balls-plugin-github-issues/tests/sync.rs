@@ -107,6 +107,40 @@ fn sync_auto_creates_new_balls_task_for_unmatched_gh_issue() {
 }
 
 #[test]
+fn sync_emits_deferred_when_gh_issue_vanishes() {
+    // GH list returns no issues; a balls task references issue #5
+    // by stored number. Default on_external_delete=deferred ->
+    // emit updated with status=deferred.
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body("[]")
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    let tasks = r#"[{"id":"bl-gone","title":"Was tracked","status":"open",
+        "external":{"github_issues":{"issue":{
+            "number":5,"url":"u","state":"open",
+            "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
+            "last_synced_status":"open"}}}}]"#;
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin(tasks)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(r#""task_id":"bl-gone""#))
+        .stdout(predicates::str::contains(r#""status":"deferred""#))
+        .stdout(predicates::str::contains("no longer found"));
+}
+
+#[test]
 fn sync_emits_close_for_gh_closed_known_issue() {
     let mut server = mockito::Server::new();
     server

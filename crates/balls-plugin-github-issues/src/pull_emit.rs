@@ -13,7 +13,8 @@
 //! `last_synced_status` tracking on the pull side is harmless
 //! because a second sync sees task.status == gh.state and skips.
 
-use crate::config::{CloseMirror, PluginConfig};
+use crate::config::{CloseMirror, OnExternalDelete, PluginConfig};
+use crate::issues_api::IssuesTaskExt;
 use crate::pull::GhIssue;
 use balls_github_shared::types::{SyncCreate, SyncUpdate, Task};
 use serde_json::{json, Value};
@@ -35,6 +36,11 @@ pub const MAX_LABELS: usize = 100;
 /// classifier still flags them as AutoCreate on the next poll). This
 /// is the creates-flood guard from B4c's acceptance criteria.
 pub const MAX_CREATES_PER_SYNC: usize = 500;
+
+/// Maximum delete-policy emissions one sync invocation can produce.
+/// Mirrors MAX_CREATES_PER_SYNC for the inverse direction — bounds
+/// the mass-delete-shaped attack from B4d's acceptance.
+pub const MAX_DELETES_PER_SYNC: usize = 500;
 
 /// Given a classified KnownUpdate (the matched GH issue + its
 /// mapped balls task + the plugin config), return the SyncUpdate
@@ -137,6 +143,74 @@ fn bound_body(body: &str) -> (String, bool) {
             idx -= 1;
         }
         (body[..idx].to_string(), true)
+    }
+}
+
+/// Sweep tasks for stored issue numbers no longer present in
+/// `known_numbers` and emit per `on_external_delete` policy.
+/// Capped by `max_emits` so a mass-delete (or a pagination-induced
+/// false-positive) is bounded — the runtime call site uses
+/// `MAX_DELETES_PER_SYNC`; tests pass a smaller cap to exercise the
+/// overflow branch without needing 500+ fixture tasks.
+pub fn sweep_deletes(
+    tasks: &[Task],
+    known_numbers: &std::collections::HashSet<u64>,
+    config: &PluginConfig,
+    max_emits: usize,
+) -> Vec<SyncUpdate> {
+    let mut out = Vec::new();
+    for task in tasks {
+        if out.len() >= max_emits {
+            break;
+        }
+        if let Some(num) = task.issue_number() {
+            if !known_numbers.contains(&num) {
+                if let Some(upd) = deleted_from(task, config) {
+                    out.push(upd);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A mirrored balls task whose GH issue number is no longer in the
+/// listed issues — treated as "deleted from GH". Returns the
+/// SyncUpdate to flip the balls task's status per
+/// `on_external_delete`, or None when the policy is Noop or the
+/// task is already at the target status (idempotent).
+pub fn deleted_from(task: &Task, config: &PluginConfig) -> Option<SyncUpdate> {
+    let target_status = match config.on_external_delete {
+        OnExternalDelete::Noop => return None,
+        OnExternalDelete::Deferred => "deferred",
+        OnExternalDelete::Closed => "closed",
+    };
+    if task.status == target_status {
+        return None;
+    }
+    let number = task.issue_number()?;
+
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_string(),
+        Value::String(target_status.to_string()),
+    );
+    Some(SyncUpdate {
+        task_id: task.id.clone(),
+        fields,
+        add_note: format!(
+            "GH issue #{} no longer found in repo (on_external_delete={})",
+            number,
+            on_external_delete_tag(config.on_external_delete),
+        ),
+    })
+}
+
+pub(crate) fn on_external_delete_tag(p: OnExternalDelete) -> &'static str {
+    match p {
+        OnExternalDelete::Deferred => "deferred",
+        OnExternalDelete::Closed => "closed",
+        OnExternalDelete::Noop => "noop",
     }
 }
 
