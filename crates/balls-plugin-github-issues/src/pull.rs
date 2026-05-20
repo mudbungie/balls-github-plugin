@@ -59,6 +59,13 @@ pub enum SkipReason {
     LoopAvoidance,
     /// Target-label filter is set and the issue lacks it.
     LabelFilter,
+    /// Title carries a `[bl-xxxx]` marker but the id is not in the
+    /// task input. The marker means this issue was mirrored from
+    /// balls; the matching task is archived (the input is
+    /// open-only — see balls `store.all_tasks`) or otherwise absent.
+    /// AutoCreate would loop the closed task back into ready
+    /// (bl-2202).
+    OrphanedBlTag,
 }
 
 /// What the classifier says to do with a polled issue. B4a only
@@ -131,6 +138,7 @@ pub fn classify(issue: &GhIssue, tasks: &[Task], config: &PluginConfig) -> Class
                 task_id: task.id.clone(),
             };
         }
+        return Classification::Skip(SkipReason::OrphanedBlTag);
     }
 
     Classification::AutoCreate

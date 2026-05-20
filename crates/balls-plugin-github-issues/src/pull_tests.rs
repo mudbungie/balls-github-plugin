@@ -88,6 +88,21 @@ fn unmatched_issue_becomes_autocreate() {
     assert_eq!(classify(&i, &[], &cfg(None)), Classification::AutoCreate);
 }
 
+// bl-2202 regression: when a GH issue title carries a `[bl-xxxx]`
+// marker but the id is not in the task input (the original ball is
+// closed/archived — balls `all_tasks` is open-only), the classifier
+// must not AutoCreate. Otherwise the closed-mirror-re-ingest loop
+// fires: a closed GH issue mirrored from balls is read back as new,
+// a fresh ball gets created, push appends a second `[bl-yyyy]`, etc.
+#[test]
+fn orphaned_bl_tag_in_title_skips_instead_of_autocreating() {
+    let i = issue(37, "Vendor SHA-1 [bl-cb4e]", "2026-01-01T00:00:00Z", &[]);
+    assert_eq!(
+        classify(&i, &[], &cfg(None)),
+        Classification::Skip(SkipReason::OrphanedBlTag)
+    );
+}
+
 #[test]
 fn label_filter_skips_non_matching_issues() {
     let i = issue(99, "Without label", "2026-01-01T00:00:00Z", &[]);
