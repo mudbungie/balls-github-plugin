@@ -3,7 +3,7 @@
 //! Two layers, per SPEC-lifecycle-sync-participants §5 and §8 plus
 //! B5's acceptance criteria:
 //!
-//! 1. **Projection overlap (`external.github_issues.*`)**: both sides
+//! 1. **Projection overlap (`external.github-issues.*`)**: both sides
 //!    moved the foreign key under the plugin's own namespace. The
 //!    plugin owns this projection authoritatively; the merge picks
 //!    the plugin's view (which is GH's view, since this projection
@@ -35,7 +35,7 @@
 use crate::config::{CloseMirror, PROJECTION_PREFIX};
 use serde_json::Value;
 
-/// Merge two views of `external.github_issues.*`. By the projection
+/// Merge two views of `external.github-issues.*`. By the projection
 /// authority rule, the plugin's (remote/GH) view wins outright.
 /// Local state is overwritten when remote is present; absent
 /// remote keeps local (idempotent on a no-op sync where the plugin
