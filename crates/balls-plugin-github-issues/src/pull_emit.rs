@@ -189,9 +189,14 @@ pub fn sweep_deletes(
 /// A mirrored balls task whose GH issue number is no longer in the
 /// listed issues — treated as "deleted from GH". Returns the
 /// SyncUpdate to flip the balls task's status per
-/// `on_external_delete`, or None when the policy is Noop or the
-/// task is already at the target status (idempotent).
+/// `on_external_delete`, or None when the policy is Noop, the
+/// task is already at the target status (idempotent), or the task
+/// is already closed (bl-5884: an external *delete* on local work
+/// that's already finished is not a signal to revive it).
 pub fn deleted_from(task: &Task, config: &PluginConfig) -> Option<SyncUpdate> {
+    if task.status == "closed" {
+        return None;
+    }
     let target_status = match config.on_external_delete {
         OnExternalDelete::Noop => return None,
         OnExternalDelete::Deferred => "deferred",

@@ -173,6 +173,40 @@ fn sync_skips_closed_mirrored_issue_when_ball_archived() {
         .stdout(predicates::str::starts_with("{}"));
 }
 
+// bl-5884: when an already-closed balls task's GH mirror issue is
+// deleted from the repo, sync must produce zero state transitions
+// — the local work is already done, the remote housekeeping is
+// not a reason to re-open the question. Before the fix, this task
+// flipped to status=deferred and re-surfaced in `bl list`.
+#[test]
+fn sync_does_not_resurrect_already_closed_task_when_gh_issue_deleted() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body("[]")
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    let tasks = r#"[{"id":"bl-done","title":"Was tracked","status":"closed",
+        "external":{"github-issues":{"issue":{
+            "number":42,"url":"u","state":"closed",
+            "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
+            "last_synced_status":"closed"}}}}]"#;
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin(tasks)
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{}"));
+}
+
 #[test]
 fn sync_emits_close_for_gh_closed_known_issue() {
     let mut server = mockito::Server::new();

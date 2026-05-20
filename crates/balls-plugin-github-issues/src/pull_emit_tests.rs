@@ -214,6 +214,25 @@ fn deleted_from_already_at_target_status_skips() {
 }
 
 #[test]
+fn deleted_from_already_closed_task_skips() {
+    // bl-5884: a closed mirror ball whose GH issue is deleted must
+    // not be flipped to `deferred`. External delete on already-
+    // finished local work is not a signal to revive it. The guard
+    // runs before the policy switch so it applies to all variants
+    // (deferred, closed, noop) — `closed` would already be a no-op
+    // by the `at-target` check, but `deferred` is the one that
+    // resurrected closed balls in the wild.
+    let t = task(
+        r#"{"id":"bl-closed","title":"t","status":"closed",
+            "external":{"github-issues":{"issue":{
+                "number":7,"url":"u","state":"closed","source":"balls",
+                "synced_at":"t","last_synced_status":"closed"}}}}"#,
+    );
+    let cfg = cfg_with(r#""on_external_delete":"deferred""#);
+    assert!(deleted_from(&t, &cfg).is_none());
+}
+
+#[test]
 fn deleted_from_no_stored_number_skips() {
     let t = task(r#"{"id":"bl-5","title":"t","status":"open"}"#);
     let cfg = cfg_with(r#""on_external_delete":"deferred""#);
