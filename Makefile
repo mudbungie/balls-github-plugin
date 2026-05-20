@@ -1,9 +1,11 @@
 .PHONY: build test check install clean
 
-# Workspace-wide targets. Adding a second binary (Epic B) requires no
-# Makefile change — `--workspace` covers it. A3 will fully rework this
-# along with the README; this revision is the minimal change needed to
-# keep `make check` green across the workspace.
+# Workspace targets. `--workspace` covers every member crate — adding
+# another binary (e.g. balls-plugin-github-issues, Epic B) requires no
+# Makefile change beyond a new line in `install` to copy its binary
+# out of `target/release/` (B7 adds that line). `make check` is the
+# pre-commit gate: tests + workspace clippy + line-length cap +
+# 100% line coverage (cargo-tarpaulin).
 
 build:
 	cargo build --release --workspace
