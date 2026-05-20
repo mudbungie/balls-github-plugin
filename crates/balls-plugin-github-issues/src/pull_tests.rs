@@ -4,6 +4,8 @@
 //! unchanged.
 
 use super::*;
+use crate::pull_emit::created_from;
+use serde_json::Value;
 
 const UA: &str = "balls-plugin-github-issues-test";
 
@@ -38,7 +40,7 @@ fn matches_by_stored_number() {
     let i = issue(7, "anything", "2026-01-02T00:00:00Z", &[]);
     let t = task(
         r#"{"id":"bl-1","title":"t","status":"open",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open",
                 "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
                 "last_synced_status":"open"}}}}"#,
@@ -56,7 +58,7 @@ fn skips_when_synced_covers_update() {
     let i = issue(7, "any", "2026-01-01T00:00:00Z", &[]);
     let t = task(
         r#"{"id":"bl-1","title":"t","status":"open",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open",
                 "source":"balls","synced_at":"2026-01-02T00:00:00+00:00",
                 "last_synced_status":"open"}}}}"#,
@@ -157,4 +159,39 @@ fn list_issues_propagates_api_error() {
 #[test]
 fn extract_bl_id_no_closing_bracket() {
     assert!(extract_bl_id("Title [bl-1a2b open issue").is_none());
+}
+
+// bl-a2ea regression: a SyncCreate emitted by `created_from`, once
+// wrapped by core under the participant name `github-issues`, must
+// classify on the next poll as KnownUpdate (or Skip via loop
+// avoidance) — never AutoCreate. The earlier double-wrap plus the
+// underscore/hyphen key mismatch broke this round-trip and produced
+// a duplicate-create on every sync.
+#[test]
+fn sync_create_round_trips_to_known_not_autocreate() {
+    let i = issue(42, "External report", "2026-01-01T00:00:00Z", &[]);
+    let create = created_from(&i);
+
+    // Mimic balls-core's sync_report::apply_created: insert the
+    // SyncCreate.external map verbatim under the participant name.
+    let outer = serde_json::json!({
+        "github-issues": Value::Object(create.external.clone()),
+    });
+    let task_json = serde_json::json!({
+        "id": "bl-mirror",
+        "title": create.title,
+        "status": create.status,
+        "external": outer,
+    });
+    let mirrored: Task = serde_json::from_value(task_json).unwrap();
+
+    let cls = classify(&i, &[mirrored], &cfg(None));
+    assert!(
+        matches!(
+            cls,
+            Classification::KnownUpdate { .. }
+                | Classification::Skip(SkipReason::LoopAvoidance)
+        ),
+        "expected KnownUpdate or Skip, got {cls:?}",
+    );
 }

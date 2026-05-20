@@ -107,18 +107,21 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
         format!("{description}\n\n{}", notes.join("\n"))
     };
 
+    // Core inserts SyncCreate.external verbatim under the
+    // participant name (see plugin/types.rs PushResponse docs). Emit
+    // the inner blob directly — wrapping under "github_issues" here
+    // is what made every sync poll re-create the same task
+    // (bl-a2ea defect 1).
     let mut external = serde_json::Map::new();
     external.insert(
-        "github_issues".to_string(),
+        "issue".to_string(),
         json!({
-            "issue": {
-                "number": issue.number,
-                "url": issue.html_url,
-                "state": issue.state,
-                "source": "github",
-                "synced_at": chrono::Utc::now().to_rfc3339(),
-                "last_synced_status": "open",
-            }
+            "number": issue.number,
+            "url": issue.html_url,
+            "state": issue.state,
+            "source": "github",
+            "synced_at": chrono::Utc::now().to_rfc3339(),
+            "last_synced_status": "open",
         }),
     );
 
