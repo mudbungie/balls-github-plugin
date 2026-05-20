@@ -92,11 +92,19 @@ Implements the balls plugin protocol (README §Plugin System):
 | `push --task ID` | For a task (any status): create/update/close the mapped GH issue with title `"<title> [ID]"` and body = description. Idempotent — a stored number is reused; status unchanged since last sync is a noop. Prints `{"issue":{number,url,state,source,synced_at,last_synced_status}}` which core stores into `task.external.github_issues`. |
 | `sync` | Poll GH issues for the repo. For each matched issue, emit `updated` (close-mirror); for each unmatched untagged issue, emit `created` (auto-create with bl-4673-aligned defenses); for each balls task whose stored number is no longer in the GH list, emit `updated` per `on_external_delete`. Empty arrays are omitted from the report. |
 
-## Ingest defenses (bl-4673)
+## Ingest defenses (bl-4673, bl-2202)
 
 When auto-creating balls tasks from GH issues (the
-attacker-influenceable direction), the plugin pre-truncates inputs
-so a pathological repo can't blow up core's ingest:
+attacker-influenceable direction), the plugin refuses to ingest an
+issue whose title carries any `[bl-xxxx]` marker. balls's
+`store.all_tasks` (the task input handed to sync) is open-only, so
+the matching ball may be archived and absent from the lookup; the
+marker itself is sufficient evidence of prior mirroring and treating
+it as a fresh report restarts the close-mirror-re-ingest loop
+(bl-2202).
+
+It also pre-truncates inputs so a pathological repo can't blow up
+core's ingest:
 
 - `MAX_BODY_BYTES` (64 KiB): oversized bodies are truncated at a
   UTF-8 char boundary; the description carries a marker line so the

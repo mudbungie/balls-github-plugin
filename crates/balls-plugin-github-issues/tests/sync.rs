@@ -140,6 +140,39 @@ fn sync_emits_deferred_when_gh_issue_vanishes() {
         .stdout(predicates::str::contains("no longer found"));
 }
 
+// bl-2202: a closed GH issue whose title carries `[bl-xxxx]` from a
+// prior mirror, with that ball already archived (open-tasks input
+// has no match), must not become a new ball. Without the
+// OrphanedBlTag skip, sync would emit a `created` here and core
+// would file bl-279f, restarting the cycle observed in
+// mudbungie/balls (GH#37, bl-cb4e -> bl-279f).
+#[test]
+fn sync_skips_closed_mirrored_issue_when_ball_archived() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":37,"title":"Vendor SHA-1 [bl-cb4e]","state":"closed",
+                 "html_url":"https://gh/i/37","updated_at":"2026-01-01T00:00:00Z",
+                 "body":"details","labels":[]}]"#,
+        )
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin("[]")
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{}"));
+}
+
 #[test]
 fn sync_emits_close_for_gh_closed_known_issue() {
     let mut server = mockito::Server::new();
