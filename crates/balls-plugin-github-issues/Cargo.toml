@@ -1,0 +1,22 @@
+[package]
+name = "balls-plugin-github-issues"
+version = "0.1.0"
+edition = "2021"
+description = "GitHub Issues plugin for balls (bidirectional task mirror)"
+license = "MIT"
+
+[[bin]]
+name = "balls-plugin-github-issues"
+path = "src/main.rs"
+
+[dependencies]
+balls-github-shared = { path = "../balls-github-shared" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+mockito = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
