@@ -15,9 +15,26 @@
 
 use crate::config::{CloseMirror, PluginConfig};
 use crate::pull::GhIssue;
-use balls_github_shared::types::{SyncUpdate, Task};
-use serde_json::Value;
+use balls_github_shared::types::{SyncCreate, SyncUpdate, Task};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+/// Per-issue body size cap on auto-create. The bl-4673 ingest
+/// backstops in balls core handle anything pathological; this is a
+/// plugin-side conservative truncation so the operator sees an
+/// explicit truncation marker rather than a silent core-side cut.
+pub const MAX_BODY_BYTES: usize = 64 * 1024;
+
+/// Per-issue label cap on auto-create. GH allows up to 100 labels
+/// per issue today; a pathological repo with thousands would still
+/// be bounded here. The cap matches the documented ingest defense.
+pub const MAX_LABELS: usize = 100;
+
+/// Maximum `created` entries one sync invocation can emit. Beyond
+/// this, remaining unmatched issues are paged to the next sync (the
+/// classifier still flags them as AutoCreate on the next poll). This
+/// is the creates-flood guard from B4c's acceptance criteria.
+pub const MAX_CREATES_PER_SYNC: usize = 500;
 
 /// Given a classified KnownUpdate (the matched GH issue + its
 /// mapped balls task + the plugin config), return the SyncUpdate
@@ -55,6 +72,82 @@ pub(crate) fn close_mirror_tag(m: CloseMirror) -> &'static str {
         CloseMirror::BestEffort => "best_effort",
         CloseMirror::Off => "off",
     }
+}
+
+/// Build the SyncCreate from a GH issue classified AutoCreate.
+/// Applies the bl-4673 plugin-side defenses: bounded body, bounded
+/// label count. The truncation/cap conditions are appended as a
+/// suffix to the description so the operator sees what happened.
+pub fn created_from(issue: &GhIssue) -> SyncCreate {
+    let (description, body_truncated) = bound_body(issue.body.as_deref().unwrap_or(""));
+    let (tags, label_truncated) = bound_labels(&issue.labels);
+
+    let mut notes = Vec::new();
+    if body_truncated {
+        notes.push(format!(
+            "[issues plugin: body truncated to {} bytes by ingest defense]",
+            MAX_BODY_BYTES
+        ));
+    }
+    if label_truncated {
+        notes.push(format!(
+            "[issues plugin: label set truncated to first {} by ingest defense]",
+            MAX_LABELS
+        ));
+    }
+    let description = if notes.is_empty() {
+        description
+    } else {
+        format!("{description}\n\n{}", notes.join("\n"))
+    };
+
+    let mut external = serde_json::Map::new();
+    external.insert(
+        "github_issues".to_string(),
+        json!({
+            "issue": {
+                "number": issue.number,
+                "url": issue.html_url,
+                "state": issue.state,
+                "source": "github",
+                "synced_at": chrono::Utc::now().to_rfc3339(),
+                "last_synced_status": "open",
+            }
+        }),
+    );
+
+    SyncCreate {
+        title: issue.title.clone(),
+        task_type: "task".to_string(),
+        priority: 3,
+        status: "open".to_string(),
+        description,
+        tags,
+        external,
+    }
+}
+
+fn bound_body(body: &str) -> (String, bool) {
+    if body.len() <= MAX_BODY_BYTES {
+        (body.to_string(), false)
+    } else {
+        // Truncate at a char boundary so we don't slice mid-UTF-8.
+        let mut idx = MAX_BODY_BYTES;
+        while !body.is_char_boundary(idx) && idx > 0 {
+            idx -= 1;
+        }
+        (body[..idx].to_string(), true)
+    }
+}
+
+fn bound_labels(labels: &[crate::pull::GhLabel]) -> (Vec<String>, bool) {
+    let total = labels.len();
+    let kept: Vec<String> = labels
+        .iter()
+        .take(MAX_LABELS)
+        .map(|l| l.name.clone())
+        .collect();
+    (kept, total > MAX_LABELS)
 }
 
 #[cfg(test)]
