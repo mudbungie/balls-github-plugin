@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-5884",
+  "claimed_by": "Apprises",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-20T23:33:04.062450387Z",
@@ -13,9 +13,9 @@
   "parent": null,
   "priority": 3,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["plugin","issues","sync","semantics"],
   "title": "on_external_delete=defer wrongly resurrects already-closed mirror balls when GH issue is deleted",
   "type": "bug",
-  "updated_at": "2026-05-20T23:33:04.062450387Z"
+  "updated_at": "2026-05-20T23:37:30.914667813Z"
 }
