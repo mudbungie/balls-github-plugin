@@ -135,6 +135,114 @@ fn created_from_empty_body_and_labels() {
     assert!(c.tags.is_empty());
 }
 
+fn cfg_with(field: &str) -> PluginConfig {
+    serde_json::from_str(&format!(r#"{{"repo":"o/n",{field}}}"#)).unwrap()
+}
+
+#[test]
+fn deleted_from_deferred_default() {
+    let t = task(
+        r#"{"id":"bl-1","title":"t","status":"open",
+            "external":{"github_issues":{"issue":{
+                "number":7,"url":"u","state":"open","source":"balls",
+                "synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let cfg = cfg_with(r#""on_external_delete":"deferred""#);
+    let upd = deleted_from(&t, &cfg).unwrap();
+    assert_eq!(upd.fields["status"], Value::String("deferred".into()));
+    assert!(upd.add_note.contains("no longer found"));
+    assert!(upd.add_note.contains("deferred"));
+}
+
+#[test]
+fn deleted_from_closed_policy() {
+    let t = task(
+        r#"{"id":"bl-2","title":"t","status":"in_progress",
+            "external":{"github_issues":{"issue":{
+                "number":7,"url":"u","state":"open","source":"balls",
+                "synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let cfg = cfg_with(r#""on_external_delete":"closed""#);
+    let upd = deleted_from(&t, &cfg).unwrap();
+    assert_eq!(upd.fields["status"], Value::String("closed".into()));
+}
+
+#[test]
+fn deleted_from_noop_returns_none() {
+    let t = task(
+        r#"{"id":"bl-3","title":"t","status":"open",
+            "external":{"github_issues":{"issue":{
+                "number":7,"url":"u","state":"open","source":"balls",
+                "synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let cfg = cfg_with(r#""on_external_delete":"noop""#);
+    assert!(deleted_from(&t, &cfg).is_none());
+}
+
+#[test]
+fn deleted_from_already_at_target_status_skips() {
+    let t = task(
+        r#"{"id":"bl-4","title":"t","status":"deferred",
+            "external":{"github_issues":{"issue":{
+                "number":7,"url":"u","state":"open","source":"balls",
+                "synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let cfg = cfg_with(r#""on_external_delete":"deferred""#);
+    assert!(deleted_from(&t, &cfg).is_none());
+}
+
+#[test]
+fn deleted_from_no_stored_number_skips() {
+    let t = task(r#"{"id":"bl-5","title":"t","status":"open"}"#);
+    let cfg = cfg_with(r#""on_external_delete":"deferred""#);
+    assert!(deleted_from(&t, &cfg).is_none());
+}
+
+#[test]
+fn on_external_delete_tag_round_trips_all_variants() {
+    assert_eq!(on_external_delete_tag(OnExternalDelete::Deferred), "deferred");
+    assert_eq!(on_external_delete_tag(OnExternalDelete::Closed), "closed");
+    assert_eq!(on_external_delete_tag(OnExternalDelete::Noop), "noop");
+}
+
+#[test]
+fn sweep_deletes_respects_cap_and_skips_present_issues() {
+    let t1 = task(
+        r#"{"id":"bl-a","title":"a","status":"open",
+            "external":{"github_issues":{"issue":{"number":1,"url":"u","state":"open",
+            "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let t2 = task(
+        r#"{"id":"bl-b","title":"b","status":"open",
+            "external":{"github_issues":{"issue":{"number":2,"url":"u","state":"open",
+            "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let t3 = task(
+        r#"{"id":"bl-c","title":"c","status":"open",
+            "external":{"github_issues":{"issue":{"number":3,"url":"u","state":"open",
+            "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
+    );
+    let t_no_num = task(r#"{"id":"bl-d","title":"d","status":"open"}"#);
+
+    // GH knows only #2. Tasks 1 and 3 are externally deleted.
+    // Task d has no stored number — skip.
+    let known: std::collections::HashSet<u64> = [2].iter().copied().collect();
+    let cfg = cfg_with(r#""on_external_delete":"deferred""#);
+
+    // Cap = 1: only the first delete-candidate is emitted; the
+    // overflow `break` fires after the second hit. Exercises line
+    // out.len() >= max_emits.
+    let out = sweep_deletes(&[t1.clone(), t2.clone(), t3.clone(), t_no_num.clone()], &known, &cfg, 1);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].task_id, "bl-a");
+
+    // Cap = 10: both deletes emitted, in iteration order.
+    let out = sweep_deletes(&[t1, t2, t3, t_no_num], &known, &cfg, 10);
+    assert_eq!(out.len(), 2);
+    assert_eq!(out[0].task_id, "bl-a");
+    assert_eq!(out[1].task_id, "bl-c");
+}
+
 #[test]
 fn created_from_handles_utf8_truncation_boundary() {
     // Build a body whose MAX_BODY_BYTES'th byte lands inside a
