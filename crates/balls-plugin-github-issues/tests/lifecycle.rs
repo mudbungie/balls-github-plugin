@@ -56,10 +56,10 @@ fn full_lifecycle_balls_create_then_gh_close_then_balls_sync_mirrors() {
     // (2) Simulated time passes; GH closes the issue externally.
     //     Balls task now has the stored projection from step (1).
     //     We rebuild the task as it would appear in the next bl sync:
-    //     status=open still, with external.github_issues populated.
+    //     status=open still, with external.github-issues populated.
     let tasks_after_push = r#"[{"id":"bl-2222","title":"Implement X","status":"open",
         "description":"do it",
-        "external":{"github_issues":{"issue":{
+        "external":{"github-issues":{"issue":{
             "number":11,"url":"https://gh/i/11","state":"open",
             "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
             "last_synced_status":"open"}}}}]"#;
@@ -126,7 +126,7 @@ fn full_lifecycle_external_delete_flips_to_deferred() {
     write_token(dir.path());
 
     let tasks = r#"[{"id":"bl-orphan","title":"Was tracked","status":"open",
-        "external":{"github_issues":{"issue":{
+        "external":{"github-issues":{"issue":{
             "number":42,"url":"u","state":"open","source":"balls",
             "synced_at":"2026-01-01T00:00:00+00:00","last_synced_status":"open"}}}}]"#;
 

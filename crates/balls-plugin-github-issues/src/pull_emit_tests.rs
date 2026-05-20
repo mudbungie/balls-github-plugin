@@ -102,9 +102,12 @@ fn created_from_simple_issue() {
     assert_eq!(c.status, "open");
     assert_eq!(c.description, "short body");
     assert_eq!(c.tags, vec!["bug".to_string()]);
-    let gh = c.external.get("github_issues").unwrap();
-    assert_eq!(gh["issue"]["number"], 7);
-    assert_eq!(gh["issue"]["source"], "github");
+    // Per the PushResponse contract, SyncCreate.external is what
+    // core inserts verbatim under the participant name. The plugin
+    // emits just {"issue": {...}} — no inner participant wrapper.
+    let issue = c.external.get("issue").unwrap();
+    assert_eq!(issue["number"], 7);
+    assert_eq!(issue["source"], "github");
 }
 
 #[test]
@@ -143,7 +146,7 @@ fn cfg_with(field: &str) -> PluginConfig {
 fn deleted_from_deferred_default() {
     let t = task(
         r#"{"id":"bl-1","title":"t","status":"open",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open","source":"balls",
                 "synced_at":"t","last_synced_status":"open"}}}}"#,
     );
@@ -158,7 +161,7 @@ fn deleted_from_deferred_default() {
 fn deleted_from_closed_policy() {
     let t = task(
         r#"{"id":"bl-2","title":"t","status":"in_progress",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open","source":"balls",
                 "synced_at":"t","last_synced_status":"open"}}}}"#,
     );
@@ -171,7 +174,7 @@ fn deleted_from_closed_policy() {
 fn deleted_from_noop_returns_none() {
     let t = task(
         r#"{"id":"bl-3","title":"t","status":"open",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open","source":"balls",
                 "synced_at":"t","last_synced_status":"open"}}}}"#,
     );
@@ -183,7 +186,7 @@ fn deleted_from_noop_returns_none() {
 fn deleted_from_already_at_target_status_skips() {
     let t = task(
         r#"{"id":"bl-4","title":"t","status":"deferred",
-            "external":{"github_issues":{"issue":{
+            "external":{"github-issues":{"issue":{
                 "number":7,"url":"u","state":"open","source":"balls",
                 "synced_at":"t","last_synced_status":"open"}}}}"#,
     );
@@ -209,17 +212,17 @@ fn on_external_delete_tag_round_trips_all_variants() {
 fn sweep_deletes_respects_cap_and_skips_present_issues() {
     let t1 = task(
         r#"{"id":"bl-a","title":"a","status":"open",
-            "external":{"github_issues":{"issue":{"number":1,"url":"u","state":"open",
+            "external":{"github-issues":{"issue":{"number":1,"url":"u","state":"open",
             "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
     );
     let t2 = task(
         r#"{"id":"bl-b","title":"b","status":"open",
-            "external":{"github_issues":{"issue":{"number":2,"url":"u","state":"open",
+            "external":{"github-issues":{"issue":{"number":2,"url":"u","state":"open",
             "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
     );
     let t3 = task(
         r#"{"id":"bl-c","title":"c","status":"open",
-            "external":{"github_issues":{"issue":{"number":3,"url":"u","state":"open",
+            "external":{"github-issues":{"issue":{"number":3,"url":"u","state":"open",
             "source":"balls","synced_at":"t","last_synced_status":"open"}}}}"#,
     );
     let t_no_num = task(r#"{"id":"bl-d","title":"d","status":"open"}"#);

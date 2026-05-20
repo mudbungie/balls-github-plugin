@@ -37,7 +37,7 @@ fn scan_dir(dir: &Path, forbidden: &[&str], hits: &mut Vec<String>) {
 fn shared_has_no_per_plugin_projection_refs() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let src = Path::new(&manifest).join("src");
-    let forbidden = &["external.github.", "external.github_issues."];
+    let forbidden = &["external.github.", "external.github-issues."];
     let mut hits = Vec::new();
     scan_dir(&src, forbidden, &mut hits);
     assert!(

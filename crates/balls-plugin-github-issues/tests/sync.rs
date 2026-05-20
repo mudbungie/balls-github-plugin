@@ -122,7 +122,7 @@ fn sync_emits_deferred_when_gh_issue_vanishes() {
     write_token(dir.path());
 
     let tasks = r#"[{"id":"bl-gone","title":"Was tracked","status":"open",
-        "external":{"github_issues":{"issue":{
+        "external":{"github-issues":{"issue":{
             "number":5,"url":"u","state":"open",
             "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
             "last_synced_status":"open"}}}}]"#;
@@ -156,7 +156,7 @@ fn sync_emits_close_for_gh_closed_known_issue() {
     write_token(dir.path());
 
     let tasks = r#"[{"id":"bl-aaaa","title":"Track","status":"open",
-        "external":{"github_issues":{"issue":{
+        "external":{"github-issues":{"issue":{
             "number":5,"url":"u","state":"open",
             "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
             "last_synced_status":"open"}}}}]"#;
