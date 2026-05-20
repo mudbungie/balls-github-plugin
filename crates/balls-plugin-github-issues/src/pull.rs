@@ -39,6 +39,12 @@ pub struct GhIssue {
     pub updated_at: String,
     #[serde(default)]
     pub labels: Vec<GhLabel>,
+    /// `GET /repos/.../issues` returns PRs too; each PR carries a
+    /// non-null `pull_request` sub-object. We only need its presence,
+    /// not its shape, so a serde_json::Value placeholder is enough.
+    /// `list_issues` drops entries where this is `Some`.
+    #[serde(default)]
+    pub pull_request: Option<serde_json::Value>,
 }
 
 impl GhIssue {
@@ -143,7 +149,15 @@ pub fn list_issues(client: &GithubClient, owner: &str, name: &str) -> Result<Vec
             .query(&[("state", "all")])
             .send()?,
     )?;
-    Ok(resp.json()?)
+    // GH's "issues" endpoint returns PRs too; entries with a
+    // `pull_request` sub-object are PRs and must be dropped before
+    // they reach classify, or every release-plz PR becomes an
+    // auto-created task whose later close would rewrite the PR title.
+    let issues: Vec<GhIssue> = resp.json()?;
+    Ok(issues
+        .into_iter()
+        .filter(|i| i.pull_request.is_none())
+        .collect())
 }
 
 #[cfg(test)]
