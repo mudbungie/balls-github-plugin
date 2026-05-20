@@ -146,9 +146,15 @@ fn push_rejects_task_id_mismatch() {
 }
 
 #[test]
-fn sync_noop_prints_empty_report() {
+fn sync_with_empty_repo_emits_empty_report() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body("[]")
+        .create();
     let dir = tempfile::tempdir().unwrap();
-    let cfg = write_config(dir.path(), "https://api.github.com");
+    let cfg = write_config(dir.path(), &server.url());
     write_token(dir.path());
 
     bin()
@@ -163,9 +169,44 @@ fn sync_noop_prints_empty_report() {
 }
 
 #[test]
-fn sync_with_task_filter_still_noop() {
+fn sync_classifies_but_emits_no_entries_in_b4a() {
+    // GH returns one unmatched issue; classify would say AutoCreate
+    // but B4a does not act on classifications — the report stays
+    // empty. B4c adds the entry-emitting wiring.
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":42,"title":"External","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
+        )
+        .create();
     let dir = tempfile::tempdir().unwrap();
-    let cfg = write_config(dir.path(), "https://api.github.com");
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin("[]")
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{}"));
+}
+
+#[test]
+fn sync_accepts_empty_stdin_as_empty_task_list() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body("[]")
+        .create();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
     write_token(dir.path());
 
     bin()
@@ -173,7 +214,7 @@ fn sync_with_task_filter_still_noop() {
         .arg(&cfg)
         .arg("--auth-dir")
         .arg(dir.path())
-        .write_stdin("[]")
+        .write_stdin("")
         .assert()
         .success()
         .stdout(predicates::str::starts_with("{}"));
