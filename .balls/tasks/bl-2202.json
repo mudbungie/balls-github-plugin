@@ -1,6 +1,6 @@
 {
-  "branch": null,
-  "claimed_by": null,
+  "branch": "work/bl-2202",
+  "claimed_by": "Occluded",
   "closed_at": null,
   "closed_children": [],
   "created_at": "2026-05-20T07:43:55.595235113Z",
@@ -13,9 +13,9 @@
   "parent": null,
   "priority": 2,
   "repo": "git@github.com:mudbungie/balls-github-plugin.git",
-  "status": "open",
+  "status": "in_progress",
   "tags": ["plugin","issues","sync","dupes"],
   "title": "github-issues: closed mirrored issue re-ingested as duplicate ball",
   "type": "bug",
-  "updated_at": "2026-05-20T07:43:55.595235113Z"
+  "updated_at": "2026-05-20T07:50:43.986616479Z"
 }
