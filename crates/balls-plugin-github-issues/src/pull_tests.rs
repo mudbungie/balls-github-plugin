@@ -28,6 +28,7 @@ fn issue(num: u64, title: &str, updated_at: &str, labels: &[&str]) -> GhIssue {
             .iter()
             .map(|n| GhLabel { name: (*n).into() })
             .collect(),
+        pull_request: None,
     }
 }
 
@@ -133,6 +134,32 @@ fn list_issues_round_trip() {
         .with_body(
             r#"[{"number":1,"title":"a","state":"open","html_url":"u",
                  "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
+        )
+        .create();
+    let c = GithubClient::new(&s.url(), "t", UA);
+    let issues = list_issues(&c, "o", "n").unwrap();
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].number, 1);
+}
+
+// bl-b233 regression: `GET /repos/{o}/{n}/issues` returns PRs too,
+// distinguished by a non-null `pull_request` sub-object on each entry.
+// Without filtering, every release-plz PR was auto-created as a balls
+// task and a later close rewrote the PR title on GH. The filter must
+// drop the PR silently and pass the plain issue through.
+#[test]
+fn list_issues_drops_pull_request_entries() {
+    let mut s = mockito::Server::new();
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[
+                {"number":1,"title":"real issue","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[]},
+                {"number":2,"title":"a PR","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[],
+                 "pull_request":{"url":"https://api.github.com/repos/o/n/pulls/2"}}
+            ]"#,
         )
         .create();
     let c = GithubClient::new(&s.url(), "t", UA);
