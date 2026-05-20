@@ -48,7 +48,7 @@ pub fn run(task_id: &str, config_path: &Path, auth_dir: &Path) -> Result<()> {
 
 /// Returns the JSON to print on stdout: either `{}` (noop) or
 /// `{"issue": {...}}` (the per-participant external blob core stores
-/// under `task.external.github_issues`).
+/// under `task.external.github-issues`).
 pub fn push_task(client: &GithubClient, config: &PluginConfig, task: &Task) -> Result<Value> {
     let stored = task.issue_number();
     let last = task.last_synced_status();
@@ -121,7 +121,7 @@ mod tests {
             &cfg("http://x"),
             &task(
                 r#"{"id":"bl-2","title":"t","status":"open",
-                    "external":{"github_issues":{"issue":{
+                    "external":{"github-issues":{"issue":{
                         "number":3,"url":"u","state":"open",
                         "source":"balls","synced_at":"t",
                         "last_synced_status":"open"}}}}"#,
@@ -176,7 +176,7 @@ mod tests {
             &cfg(&s.url()),
             &task(
                 r#"{"id":"bl-4","title":"t","status":"closed",
-                    "external":{"github_issues":{"issue":{
+                    "external":{"github-issues":{"issue":{
                         "number":4,"url":"u","state":"open",
                         "source":"balls","synced_at":"t",
                         "last_synced_status":"open"}}}}"#,
@@ -204,7 +204,7 @@ mod tests {
             &cfg(&s.url()),
             &task(
                 r#"{"id":"bl-5","title":"t","status":"in_progress",
-                    "external":{"github_issues":{"issue":{
+                    "external":{"github-issues":{"issue":{
                         "number":5,"url":"u","state":"open",
                         "source":"balls","synced_at":"t",
                         "last_synced_status":"open"}}}}"#,

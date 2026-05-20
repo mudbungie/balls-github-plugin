@@ -23,12 +23,15 @@ use std::path::Path;
 /// keeps them disjoint by construction. Don't change without
 /// re-reading SPEC-lifecycle-sync-participants §3.
 ///
-/// `#[allow(dead_code)]` because B2 declares the contract; the
-/// consumers land in B4a (identity matching reads
-/// `external.github_issues.number`) and B5 (the projection's merge
-/// function keys off this prefix).
+/// The participant-name segment must equal the plugin name as
+/// configured in `.balls/config.json` (`github-issues`) — that
+/// hyphenated form is the outer key core writes into
+/// `task.external` per `PushResponse` semantics. `IssuesTaskExt`
+/// derives the lookup key by stripping this prefix's `external.`
+/// and trailing `.`, so a mismatch here makes every re-poll
+/// classify as AutoCreate (the bl-a2ea regression).
 #[allow(dead_code)]
-pub const PROJECTION_PREFIX: &str = "external.github_issues.";
+pub const PROJECTION_PREFIX: &str = "external.github-issues.";
 
 /// The forge plugin's projection prefix — kept here as a hardcoded
 /// string for the disjointness test. If the forge plugin ever
@@ -50,7 +53,7 @@ pub enum CloseMirror {
     /// event). This is a *policy* opt-down — the plugin still emits.
     BestEffort,
     /// Do not mirror close at all. The GH-side close is recorded in
-    /// `external.github_issues.state` but balls's `status` is
+    /// `external.github-issues.state` but balls's `status` is
     /// untouched. Symmetric "GH never owns status".
     Off,
 }
@@ -69,7 +72,7 @@ pub enum OnExternalDelete {
     /// as archived; recoverable from the state branch.
     Closed,
     /// Leave the balls task alone. The orphan mapping persists in
-    /// `external.github_issues` until manually cleared.
+    /// `external.github-issues` until manually cleared.
     Noop,
 }
 
@@ -188,7 +191,7 @@ mod tests {
     #[test]
     fn projection_prefix_is_disjoint_from_forge() {
         // Neither prefix is a substring of the other: a key under
-        // `external.github_issues.foo` is NOT under
+        // `external.github-issues.foo` is NOT under
         // `external.github.foo` and vice versa. This is the
         // disjointness contract from
         // SPEC-lifecycle-sync-participants §3.

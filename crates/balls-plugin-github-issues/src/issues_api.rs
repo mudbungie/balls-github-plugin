@@ -1,7 +1,7 @@
 //! Issues plugin's GitHub Issues endpoints and Task accessors. The
 //! shared `GithubClient` handles auth + status mapping; this module
 //! adds the issue-shaped requests and the projection accessors that
-//! read `task.external.github_issues.*`.
+//! read `task.external.github-issues.*`.
 
 use crate::config::PROJECTION_PREFIX;
 use balls_github_shared::error::Result;
@@ -63,7 +63,7 @@ pub fn patch_issue(
     Ok(resp.json()?)
 }
 
-/// Accessors over `external.github_issues.*` — the projection this
+/// Accessors over `external.github-issues.*` — the projection this
 /// plugin owns. Implemented as a trait on shared `Task` so the
 /// projection literal lives only in this crate (matching the forge
 /// plugin's `ForgeTaskExt` pattern).
@@ -133,7 +133,7 @@ mod tests {
     fn accessors_read_projection() {
         let t = task(
             r#"{"id":"bl-p","title":"t","status":"open",
-                "external":{"github_issues":{"issue":{
+                "external":{"github-issues":{"issue":{
                     "number":5,"url":"u","state":"open",
                     "source":"balls","synced_at":"t","last_synced_status":"open"
                 }}}}"#,
