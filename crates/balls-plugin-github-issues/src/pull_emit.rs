@@ -112,6 +112,15 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
     // the inner blob directly — wrapping under "github_issues" here
     // is what made every sync poll re-create the same task
     // (bl-a2ea defect 1).
+    //
+    // Mirror the GH issue's current state into both the new task's
+    // top-level status and the projection's last_synced_status. A
+    // born-closed issue (state=closed at the moment of first sync)
+    // must yield a closed balls task: KnownUpdate close-mirror only
+    // fires on a state *transition* (state != last_synced_status), so
+    // if we left the new task at status=open with last_synced_status=
+    // open, the next sync would see no transition and the task would
+    // sit at open forever (bl-321d).
     let mut external = serde_json::Map::new();
     external.insert(
         "issue".to_string(),
@@ -121,7 +130,7 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
             "state": issue.state,
             "source": "github",
             "synced_at": chrono::Utc::now().to_rfc3339(),
-            "last_synced_status": "open",
+            "last_synced_status": issue.state,
         }),
     );
 
@@ -129,7 +138,7 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
         title: issue.title.clone(),
         task_type: "task".to_string(),
         priority: 3,
-        status: "open".to_string(),
+        status: issue.state.clone(),
         description,
         tags,
         external,
