@@ -19,3 +19,5 @@ Thumbs.db
 # balls runtime state
 .balls/local
 .balls-worktrees
+.balls/tasks
+.balls/worktree

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id_length": 4,
+  "stale_threshold_seconds": 60,
+  "auto_fetch_on_ready": true,
+  "worktree_dir": ".balls-worktrees",
+  "protected_main": false,
+  "require_remote_on_claim": false,
+  "require_remote_on_review": false,
+  "require_remote_on_close": false,
+  "plugins": {}
+}
