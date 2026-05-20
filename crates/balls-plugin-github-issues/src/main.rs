@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod issues_api;
 
 use clap::Parser;
 use cli::{Cli, Command};
