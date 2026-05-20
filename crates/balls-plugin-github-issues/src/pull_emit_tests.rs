@@ -140,6 +140,23 @@ fn created_from_empty_body_and_labels() {
     assert!(c.tags.is_empty());
 }
 
+#[test]
+fn created_from_born_closed_issue_yields_closed_task() {
+    // bl-321d regression: a GH issue already in state=closed at the
+    // moment of first sync must produce a closed balls task. If we
+    // left it at status=open, the next sync would see no transition
+    // (state==last_synced_status==closed) so close-mirror's
+    // KnownUpdate would never fire and the task would sit open
+    // forever. The projection's last_synced_status mirrors state so
+    // the second sync converges silently rather than re-emitting.
+    let i = issue_full("closed", 42, "Already shipped", "body", &[]);
+    let c = created_from(&i);
+    assert_eq!(c.status, "closed");
+    let issue = c.external.get("issue").unwrap();
+    assert_eq!(issue["state"], "closed");
+    assert_eq!(issue["last_synced_status"], "closed");
+}
+
 fn cfg_with(field: &str) -> PluginConfig {
     serde_json::from_str(&format!(r#"{{"repo":"o/n",{field}}}"#)).unwrap()
 }
