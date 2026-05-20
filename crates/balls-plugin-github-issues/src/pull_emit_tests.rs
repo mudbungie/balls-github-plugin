@@ -24,6 +24,7 @@ fn issue(state: &str, number: u64) -> GhIssue {
         html_url: "u".into(),
         updated_at: "2026-01-01T00:00:00Z".into(),
         labels: Vec::<GhLabel>::new(),
+        pull_request: None,
     }
 }
 
@@ -89,6 +90,7 @@ fn issue_full(state: &str, number: u64, title: &str, body: &str, labels: &[&str]
         html_url: "u".into(),
         updated_at: "2026-01-01T00:00:00Z".into(),
         labels: labels.iter().map(|n| GhLabel { name: (*n).into() }).collect(),
+        pull_request: None,
     }
 }
 
