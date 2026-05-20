@@ -1,13 +1,14 @@
-use crate::auth;
 use crate::config::PluginConfig;
-use crate::error::Result;
-use crate::github::GithubClient;
+use crate::USER_AGENT;
+use balls_github_shared::auth;
+use balls_github_shared::error::Result;
+use balls_github_shared::http::GithubClient;
 use std::path::Path;
 
 pub fn run(config_path: &Path, auth_dir: &Path) -> Result<()> {
     let config = PluginConfig::load(config_path)?;
     let token = auth::load_token(auth_dir)?;
-    GithubClient::new(config.api_base(), &token).current_user()?;
+    GithubClient::new(config.api_base(), &token, USER_AGENT).current_user()?;
     Ok(())
 }
 

@@ -1,15 +1,18 @@
-use crate::auth;
 use crate::config::PluginConfig;
-use crate::error::{PluginError, Result};
-use crate::github::GithubClient;
-use crate::types::{PushResponse, Task};
+use crate::pr_api::{create_pr, find_pr, get_pr, ForgeTaskExt};
+use crate::types::PushResponse;
+use crate::USER_AGENT;
+use balls_github_shared::auth;
+use balls_github_shared::error::{PluginError, Result};
+use balls_github_shared::http::GithubClient;
+use balls_github_shared::types::Task;
 use std::io::Read;
 use std::path::Path;
 
 pub fn run(task_id: &str, config_path: &Path, auth_dir: &Path) -> Result<()> {
     let config = PluginConfig::load(config_path)?;
     let token = auth::load_token(auth_dir)?;
-    let client = GithubClient::new(config.api_base(), &token);
+    let client = GithubClient::new(config.api_base(), &token, USER_AGENT);
 
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf)?;
@@ -60,10 +63,10 @@ pub fn push_task(
     let body = format!("Delivers {} via balls deferred-mode review.", task.id);
 
     let pr = match task.pr_number() {
-        Some(n) => client.get_pr(owner, name, n)?,
-        None => match client.find_pr(owner, name, &head)? {
+        Some(n) => get_pr(client, owner, name, n)?,
+        None => match find_pr(client, owner, name, &head)? {
             Some(existing) => existing,
-            None => client.create_pr(owner, name, &title, &head, &base, &body)?,
+            None => create_pr(client, owner, name, &title, &head, &base, &body)?,
         },
     };
     Ok(PushResponse {
@@ -74,6 +77,8 @@ pub fn push_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const UA: &str = "balls-plugin-github-test";
 
     fn cfg(api: &str, target: Option<&str>) -> PluginConfig {
         let t = target
@@ -88,7 +93,7 @@ mod tests {
 
     #[test]
     fn rejects_non_review_task() {
-        let c = GithubClient::new("http://x", "t");
+        let c = GithubClient::new("http://x", "t", UA);
         let err = push_task(
             &c,
             &cfg("http://x", Some("main")),
@@ -100,7 +105,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_repo() {
-        let c = GithubClient::new("http://x", "t");
+        let c = GithubClient::new("http://x", "t", UA);
         let conf: PluginConfig = serde_json::from_str(r#"{"repo":"noslash"}"#).unwrap();
         assert!(push_task(&c, &conf, &task(r#"{"id":"bl-1","title":"t","status":"review"}"#))
             .unwrap_err()
@@ -110,7 +115,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_target_branch() {
-        let c = GithubClient::new("http://x", "t");
+        let c = GithubClient::new("http://x", "t", UA);
         let err = push_task(
             &c,
             &cfg("http://x", None),
@@ -134,7 +139,7 @@ mod tests {
                     "head":{"ref":"work/bl-1","sha":"sha5"},"base":{"ref":"main"}}"#,
             )
             .create();
-        let c = GithubClient::new(&s.url(), "t");
+        let c = GithubClient::new(&s.url(), "t", UA);
         let r = push_task(
             &c,
             &cfg(&s.url(), Some("main")),
@@ -156,7 +161,7 @@ mod tests {
                      "base":{"ref":"develop"}}]"#,
             )
             .create();
-        let c = GithubClient::new(&s.url(), "t");
+        let c = GithubClient::new(&s.url(), "t", UA);
         let r = push_task(
             &c,
             &cfg(&s.url(), Some("main")),
@@ -177,7 +182,7 @@ mod tests {
                     "base":{"ref":"main"}}"#,
             )
             .create();
-        let c = GithubClient::new(&s.url(), "t");
+        let c = GithubClient::new(&s.url(), "t", UA);
         let r = push_task(
             &c,
             &cfg(&s.url(), Some("main")),

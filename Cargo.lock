@@ -114,10 +114,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "balls-github-shared"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "balls-plugin-github"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
+ "balls-github-shared",
  "chrono",
  "clap",
  "mockito",
