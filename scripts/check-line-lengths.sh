@@ -15,7 +15,10 @@ while IFS= read -r file; do
         violations=$((violations + 1))
     fi
 done < <(
-    find src tests -type f -name '*.rs' 2>/dev/null | sort
+    # Workspace layout: every crate has its own src/ and (optionally)
+    # tests/. Scan everything under crates/, plus any stray top-level
+    # src/tests (none today; the fallback is for future-proofing).
+    find crates src tests -type f -name '*.rs' 2>/dev/null | sort
 )
 
 if (( violations > 0 )); then
