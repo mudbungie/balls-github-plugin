@@ -71,6 +71,16 @@ pub trait IssuesTaskExt {
     fn issue_blob(&self) -> Option<&Value>;
     fn issue_number(&self) -> Option<u64>;
     fn last_synced_status(&self) -> Option<&str>;
+    /// The full GH-side title (with `[bl-xxxx]` suffix) we last
+    /// pushed. bl-4918's content-mirror compares the live GH title
+    /// against this to decide who moved: gh.title != this means GH
+    /// moved; `<task.title> [task.id]` != this means balls moved;
+    /// both is a conflict.
+    fn last_synced_title(&self) -> Option<&str>;
+    /// 16-hex FNV-1a-64 hash of the GH-side body we last pushed.
+    /// Constant-size (16 bytes of hex) by construction, honoring the
+    /// "no new state stores" intent for bl-4918's content-mirror.
+    fn last_synced_body_hash(&self) -> Option<&str>;
     /// The RFC3339 `synced_at` last written by push (B3). Used by
     /// B4a's classify for loop avoidance: a GH issue whose
     /// `updated_at` is older than (or equal to) this is one we
@@ -104,6 +114,18 @@ impl IssuesTaskExt for Task {
             .and_then(|v| v.as_str())
     }
 
+    fn last_synced_title(&self) -> Option<&str> {
+        self.issue_blob()
+            .and_then(|v| v.get("last_synced_title"))
+            .and_then(|v| v.as_str())
+    }
+
+    fn last_synced_body_hash(&self) -> Option<&str> {
+        self.issue_blob()
+            .and_then(|v| v.get("last_synced_body_hash"))
+            .and_then(|v| v.as_str())
+    }
+
     fn synced_at(&self) -> Option<&str> {
         self.issue_blob()
             .and_then(|v| v.get("synced_at"))
@@ -127,6 +149,9 @@ mod tests {
         assert!(t.issue_blob().is_none());
         assert!(t.issue_number().is_none());
         assert!(t.last_synced_status().is_none());
+        assert!(t.last_synced_title().is_none());
+        assert!(t.last_synced_body_hash().is_none());
+        assert!(t.synced_at().is_none());
     }
 
     #[test]
@@ -135,12 +160,16 @@ mod tests {
             r#"{"id":"bl-p","title":"t","status":"open",
                 "external":{"github-issues":{"issue":{
                     "number":5,"url":"u","state":"open",
-                    "source":"balls","synced_at":"t","last_synced_status":"open"
+                    "source":"balls","synced_at":"t1","last_synced_status":"open",
+                    "last_synced_title":"t [bl-p]","last_synced_body_hash":"deadbeef"
                 }}}}"#,
         );
         assert!(t.issue_blob().is_some());
         assert_eq!(t.issue_number(), Some(5));
         assert_eq!(t.last_synced_status(), Some("open"));
+        assert_eq!(t.last_synced_title(), Some("t [bl-p]"));
+        assert_eq!(t.last_synced_body_hash(), Some("deadbeef"));
+        assert_eq!(t.synced_at(), Some("t1"));
     }
 
     #[test]

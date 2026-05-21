@@ -1,24 +1,27 @@
 //! Emit SyncReport entries from classified GH issues.
 //!
-//! B4b ships the close-mirror half: GH-issue closed externally
-//! propagates to the mapped balls task as `status="closed"`, gated
-//! by the operator's `close_mirror` policy. The richer title/body
-//! content mirror + conflict-via-SyncReport machinery is scoped
-//! to a follow-up ball — those need balls-core sync-report
-//! semantics work (writing into `external.*` from a SyncUpdate) and
-//! a hash-bounded `last_synced_*` projection that B3's push doesn't
-//! yet populate. Close-mirror sidesteps both: GH and balls only ever
-//! diverge on `status`, status is a top-level Task field core
-//! already accepts in SyncReport.updated.fields, and the absence of
-//! `last_synced_status` tracking on the pull side is harmless
-//! because a second sync sees task.status == gh.state and skips.
+//! Three emission shapes, one per classifier-and-policy outcome:
+//!
+//! - `updated_from` (KnownUpdate): close-mirror + title/body content
+//!   mirror (bl-4918), implementation in `pull_emit_update.rs`. Re-
+//!   exported here so the `commands::sync` call site has a single
+//!   import surface for the whole pull-emit family.
+//! - `created_from` (AutoCreate): brand-new task from an unmatched
+//!   GH issue, with bl-4673-aligned bounded body / labels, and
+//!   `last_synced_{title,body_hash}` seeded so the next sync is a
+//!   noop for that issue.
+//! - `deleted_from` / `sweep_deletes` (B4d): externally-deleted
+//!   issue maps to `on_external_delete` policy.
 
-use crate::config::{CloseMirror, OnExternalDelete, PluginConfig};
+use crate::config::{OnExternalDelete, PluginConfig};
 use crate::issues_api::IssuesTaskExt;
 use crate::pull::GhIssue;
+use crate::pull_content::body_hash;
 use balls_github_shared::types::{SyncCreate, SyncUpdate, Task};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+pub use crate::pull_emit_update::updated_from;
 
 /// Per-issue body size cap on auto-create. The bl-4673 ingest
 /// backstops in balls core handle anything pathological; this is a
@@ -41,44 +44,6 @@ pub const MAX_CREATES_PER_SYNC: usize = 500;
 /// Mirrors MAX_CREATES_PER_SYNC for the inverse direction — bounds
 /// the mass-delete-shaped attack from B4d's acceptance.
 pub const MAX_DELETES_PER_SYNC: usize = 500;
-
-/// Given a classified KnownUpdate (the matched GH issue + its
-/// mapped balls task + the plugin config), return the SyncUpdate
-/// to emit — or None if nothing should change.
-pub fn updated_from(issue: &GhIssue, task: &Task, config: &PluginConfig) -> Option<SyncUpdate> {
-    if config.close_mirror == CloseMirror::Off {
-        return None;
-    }
-    if issue.state != "closed" {
-        return None;
-    }
-    if task.status == "closed" {
-        return None;
-    }
-
-    let mut fields = BTreeMap::new();
-    fields.insert(
-        "status".to_string(),
-        Value::String("closed".to_string()),
-    );
-    Some(SyncUpdate {
-        task_id: task.id.clone(),
-        fields,
-        add_note: format!(
-            "GH issue #{} closed externally (close_mirror={})",
-            issue.number,
-            close_mirror_tag(config.close_mirror),
-        ),
-    })
-}
-
-pub(crate) fn close_mirror_tag(m: CloseMirror) -> &'static str {
-    match m {
-        CloseMirror::Authoritative => "authoritative",
-        CloseMirror::BestEffort => "best_effort",
-        CloseMirror::Off => "off",
-    }
-}
 
 /// Build the SyncCreate from a GH issue classified AutoCreate.
 /// Applies the bl-4673 plugin-side defenses: bounded body, bounded
@@ -121,6 +86,11 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
     // if we left the new task at status=open with last_synced_status=
     // open, the next sync would see no transition and the task would
     // sit at open forever (bl-321d).
+    // Seed last_synced_{title,body_hash} from what we see on GH right
+    // now, so the second sync after auto-create is a noop. Without
+    // these, every subsequent poll would flag the same title/body as
+    // "GH moved" (since last_synced is absent) until a push runs.
+    let body_for_hash = issue.body.as_deref().unwrap_or("");
     let mut external = serde_json::Map::new();
     external.insert(
         "issue".to_string(),
@@ -131,6 +101,8 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
             "source": "github",
             "synced_at": chrono::Utc::now().to_rfc3339(),
             "last_synced_status": issue.state,
+            "last_synced_title": issue.title,
+            "last_synced_body_hash": body_hash(body_for_hash),
         }),
     );
 
@@ -145,7 +117,7 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
     }
 }
 
-fn bound_body(body: &str) -> (String, bool) {
+pub(crate) fn bound_body(body: &str) -> (String, bool) {
     if body.len() <= MAX_BODY_BYTES {
         (body.to_string(), false)
     } else {
@@ -215,6 +187,7 @@ pub fn deleted_from(task: &Task, config: &PluginConfig) -> Option<SyncUpdate> {
     Some(SyncUpdate {
         task_id: task.id.clone(),
         fields,
+        external: serde_json::Map::new(),
         add_note: format!(
             "GH issue #{} no longer found in repo (on_external_delete={})",
             number,

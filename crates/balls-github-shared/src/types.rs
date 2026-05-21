@@ -79,6 +79,14 @@ pub struct SyncCreate {
 pub struct SyncUpdate {
     pub task_id: String,
     pub fields: BTreeMap<String, Value>,
+    /// Replacement value for `task.external.<plugin_name>`. Non-empty
+    /// means "rewrite my projection blob with this exact map";
+    /// `is_empty` means "leave the projection untouched" (so a sync
+    /// that only flips a top-level field doesn't accidentally clobber
+    /// the projection a previous push wrote). Mirrors core's
+    /// `SyncUpdate.external` shape exactly.
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    pub external: serde_json::Map<String, Value>,
     /// `add_note` is kept as a plain String here (rather than the
     /// `Option<String>` core uses) because every emit-site has a
     /// concrete note to write. Core's deserializer accepts a bare
@@ -136,6 +144,7 @@ mod tests {
             updated: vec![SyncUpdate {
                 task_id: "bl-g".into(),
                 fields,
+                external: serde_json::Map::new(),
                 add_note: "merged".into(),
             }],
             deleted: Vec::new(),
@@ -168,6 +177,24 @@ mod tests {
         assert!(s.contains(r#""title":"From GH""#));
         assert!(s.contains(r#""type":"task""#));
         assert!(s.contains(r#""priority":3"#));
+    }
+
+    #[test]
+    fn serialize_sync_update_external_round_trip() {
+        let mut ext = serde_json::Map::new();
+        ext.insert("issue".into(), serde_json::json!({"number": 9}));
+        let r = SyncReport {
+            created: Vec::new(),
+            updated: vec![SyncUpdate {
+                task_id: "bl-e".into(),
+                fields: BTreeMap::new(),
+                external: ext,
+                add_note: "n".into(),
+            }],
+            deleted: Vec::new(),
+        };
+        let s = serde_json::to_string(&r).unwrap();
+        assert!(s.contains(r#""external":{"issue":{"number":9}}"#));
     }
 
     #[test]

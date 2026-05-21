@@ -37,3 +37,19 @@ pub fn write_token(dir: &Path) {
 pub fn bin() -> Command {
     Command::cargo_bin("balls-plugin-github-issues").unwrap()
 }
+
+/// FNV-1a-64 hex digest. Mirrors `pull_content::body_hash` exactly.
+/// Duplicated here (rather than imported) because integration tests
+/// only see the binary's public surface; the coupling is intentional
+/// — if the projection's hash algorithm ever changes, this helper
+/// breaks too, which is the right place to find out.
+pub fn fnv_hex(s: &str) -> String {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut h: u64 = FNV_OFFSET;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(FNV_PRIME);
+    }
+    format!("{h:016x}")
+}

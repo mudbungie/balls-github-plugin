@@ -17,6 +17,7 @@
 
 use crate::config::PluginConfig;
 use crate::issues_api::{create_issue, patch_issue, Issue, IssuesTaskExt};
+use crate::pull_content::body_hash;
 use crate::USER_AGENT;
 use balls_github_shared::auth;
 use balls_github_shared::error::{PluginError, Result};
@@ -71,10 +72,15 @@ pub fn push_task(client: &GithubClient, config: &PluginConfig, task: &Task) -> R
         Some(n) => patch_issue(client, owner, name, n, &title, &task.description, state)?,
         None => create_issue(client, owner, name, &title, &task.description)?,
     };
-    Ok(issue_blob(&issue, &task.status))
+    Ok(issue_blob(&issue, &task.status, &title, &task.description))
 }
 
-fn issue_blob(issue: &Issue, last_synced_status: &str) -> Value {
+fn issue_blob(
+    issue: &Issue,
+    last_synced_status: &str,
+    last_synced_title: &str,
+    body: &str,
+) -> Value {
     json!({
         "issue": {
             "number": issue.number,
@@ -83,6 +89,8 @@ fn issue_blob(issue: &Issue, last_synced_status: &str) -> Value {
             "source": "balls",
             "synced_at": chrono::Utc::now().to_rfc3339(),
             "last_synced_status": last_synced_status,
+            "last_synced_title": last_synced_title,
+            "last_synced_body_hash": body_hash(body),
         }
     })
 }
@@ -161,6 +169,10 @@ mod tests {
         assert_eq!(issue["number"], 7);
         assert_eq!(issue["source"], "balls");
         assert_eq!(issue["last_synced_status"], "open");
+        // bl-4918: push records what it just sent to GH so the next
+        // sync's content-mirror can ask "who moved?".
+        assert_eq!(issue["last_synced_title"], "Do it [bl-3]");
+        assert_eq!(issue["last_synced_body_hash"], body_hash("body"));
     }
 
     #[test]
