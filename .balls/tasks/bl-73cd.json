@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-21T00:39:47.909985796Z",
+  "delivered_in": null,
+  "depends_on": [],
+  "description": "Symmetric counterpart to bl-4918. push_task's noop check is currently status-only:\n\n    if stored.is_some() && last == Some(task.status.as_str()) {\n        return Ok(json!({}));\n    }\n\nso a balls-side title or description edit that doesn't change status never PATCHes GH. The content mirror shipped in bl-4918 is therefore one-directional today (GH -> balls only).\n\nbl-4918 added last_synced_title and last_synced_body_hash to the projection precisely so the push side can decide 'did balls move?'. The fix is: replace the status-only noop with a comparison against the projection — noop only when status, format!('{} [{}]', task.title, task.id), and body_hash(task.description) ALL match last_synced_*. Any one differing -> PATCH and update the projection.\n\nACCEPTANCE:\n- Push PATCHes when balls.title changes without a status change.\n- Push PATCHes when balls.description changes without a status change.\n- Push noops when none of (status, title, body) moved.\n- Unit test for each PATCH-vs-noop arm.\n- Integration test in tests/push.rs exercising 'title-only edit -> PATCH'.",
+  "external": {},
+  "id": "bl-73cd",
+  "links": [],
+  "parent": null,
+  "priority": 3,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["plugin","issues","push"],
+  "title": "Push-side content mirror: PATCH GH when balls title or body moves",
+  "type": "task",
+  "updated_at": "2026-05-21T00:39:47.909985796Z"
+}
