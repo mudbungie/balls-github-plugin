@@ -4,7 +4,9 @@ mod config;
 mod issues_api;
 mod merge;
 mod pull;
+mod pull_content;
 mod pull_emit;
+mod pull_emit_update;
 
 use clap::Parser;
 use cli::{Cli, Command};

@@ -72,6 +72,7 @@ pub fn build_report(
         report.updated.push(SyncUpdate {
             task_id: gate_id.to_string(),
             fields,
+            external: serde_json::Map::new(),
             add_note: format!("PR #{} merged as {}", number, sha),
         });
     }

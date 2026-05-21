@@ -14,7 +14,7 @@
 //! to-end with no hidden coupling between subcommands.
 
 mod common;
-use common::{bin, write_config, write_token};
+use common::{bin, fnv_hex, write_config, write_token};
 
 #[test]
 fn full_lifecycle_balls_create_then_gh_close_then_balls_sync_mirrors() {
@@ -110,6 +110,81 @@ fn full_lifecycle_gh_creates_external_issue_then_sync_auto_creates_balls_task() 
         .stdout(predicates::str::contains(r#""bug""#))
         .stdout(predicates::str::contains(r#""crash""#))
         .stdout(predicates::str::contains(r#""source":"github""#));
+}
+
+// bl-4918: a sync that mirrors a GH-side title edit must refresh
+// `external.github-issues.issue.last_synced_title` (and the body
+// hash) so a second sync against the same fixture is a noop. Without
+// the projection refresh, every poll re-emits the same SyncUpdate.
+#[test]
+fn full_lifecycle_pull_update_refreshes_projection_so_next_sync_is_noop() {
+    let mut server = mockito::Server::new();
+    // Same response served twice — we'll invoke `sync` twice and
+    // assert the second call returns an empty report.
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":42,"title":"Renamed [bl-bbbb]","state":"open","html_url":"u",
+                 "updated_at":"2026-03-01T00:00:00Z","body":"same body","labels":[]}]"#,
+        )
+        .expect_at_least(2)
+        .create();
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path(), &server.url());
+    write_token(dir.path());
+
+    // Initial state: balls has "Old title", body matches GH, last
+    // sync recorded "Old title [bl-bbbb]" as the title we last
+    // pushed.
+    let hash = fnv_hex("same body");
+    let initial = format!(
+        r#"[{{"id":"bl-bbbb","title":"Old title","status":"open","description":"same body",
+            "external":{{"github-issues":{{"issue":{{
+                "number":42,"url":"u","state":"open","source":"balls",
+                "synced_at":"2026-01-01T00:00:00+00:00",
+                "last_synced_status":"open",
+                "last_synced_title":"Old title [bl-bbbb]",
+                "last_synced_body_hash":"{hash}"}}}}}}}}]"#
+    );
+
+    // First sync: emit title mirror + projection refresh.
+    let first = bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin(initial)
+        .output()
+        .unwrap();
+    assert!(first.status.success());
+    let first_out = String::from_utf8(first.stdout).unwrap();
+    assert!(first_out.contains("Renamed"));
+    assert!(first_out.contains("title mirrored"));
+
+    // Simulate core applying the SyncUpdate: extract the new
+    // external blob and the new title from the first sync's output,
+    // then feed that back as the next sync's input.
+    let report: serde_json::Value = serde_json::from_str(first_out.trim()).unwrap();
+    let updated = &report["updated"][0];
+    let new_title = updated["fields"]["title"].as_str().unwrap();
+    let new_external = serde_json::to_string(&updated["external"]).unwrap();
+    let second_input = format!(
+        r#"[{{"id":"bl-bbbb","title":{new_title:?},"status":"open","description":"same body",
+            "external":{{"github-issues":{new_external}}}}}]"#
+    );
+
+    // Second sync against the same GH state: must be a noop.
+    bin()
+        .args(["sync", "--config"])
+        .arg(&cfg)
+        .arg("--auth-dir")
+        .arg(dir.path())
+        .write_stdin(second_input)
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{}"));
 }
 
 #[test]
