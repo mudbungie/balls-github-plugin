@@ -74,7 +74,7 @@ pub fn created_from(issue: &GhIssue) -> SyncCreate {
 
     // Core inserts SyncCreate.external verbatim under the
     // participant name (see plugin/types.rs PushResponse docs). Emit
-    // the inner blob directly — wrapping under "github_issues" here
+    // the inner blob directly — wrapping under "github-issues" here
     // is what made every sync poll re-create the same task
     // (bl-a2ea defect 1).
     //

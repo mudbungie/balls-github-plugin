@@ -23,7 +23,7 @@ scoped. Each is overridable per config.
   emission but downstream failure-policy treats it as best-effort
   (warns + records sync_status; does not abort the lifecycle event).
 - **Auto-create from new GH issues**. Any GH issue without a stored
-  `external.github_issues.issue.number` mapping and without a
+  `external.github-issues.issue.number` mapping and without a
   `[bl-xxxx]` tag in its title is treated as an external report and
   becomes a new balls task on the next `bl sync` (a
   `SyncReport.created` entry). Filter the scope via

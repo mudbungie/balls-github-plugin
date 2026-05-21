@@ -19,7 +19,7 @@ disjoint authoritative projections:
 
 - The forge plugin owns `task.external.github.*` (the PR ref) and
   participates in `review`/`sync` to drive the deferred-mode gate.
-- The issues plugin owns `task.external.github_issues.*` (the issue
+- The issues plugin owns `task.external.github-issues.*` (the issue
   ref) and participates in `create`/`update`/`close`/`sync` to keep
   GitHub Issues in sync with balls tasks.
 
@@ -45,7 +45,7 @@ has zero references to any per-plugin `external.<name>.*` literal,
 enforced by a unit test
 (`projection_boundary_test::shared_has_no_per_plugin_projection_refs`).
 If you find yourself wanting to put a `external.github.…` or
-`external.github_issues.…` reference into `balls-github-shared`, you
+`external.github-issues.…` reference into `balls-github-shared`, you
 are about to violate the disjoint-projection rule. Push that code
 into the plugin crate that owns the projection.
 
