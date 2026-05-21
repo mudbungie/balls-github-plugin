@@ -148,16 +148,21 @@ fn patches_existing_issue_on_status_change_close() {
         .with_body(r#"{"number":4,"html_url":"u","state":"closed"}"#)
         .create();
     let c = GithubClient::new(&s.url(), "t", UA);
+    // last_synced_title/body match the task, so status is the sole
+    // divergence — this isolates the status-change PATCH arm.
+    let empty = body_hash("");
     let v = push_task(
         &c,
         &cfg(&s.url()),
-        &task(
-            r#"{"id":"bl-4","title":"t","status":"closed",
-                "external":{"github-issues":{"issue":{
+        &task(&format!(
+            r#"{{"id":"bl-4","title":"t","status":"closed",
+                "external":{{"github-issues":{{"issue":{{
                     "number":4,"url":"u","state":"open",
                     "source":"balls","synced_at":"t",
-                    "last_synced_status":"open"}}}}"#,
-        ),
+                    "last_synced_status":"open",
+                    "last_synced_title":"t [bl-4]",
+                    "last_synced_body_hash":"{empty}"}}}}}}}}"#
+        )),
     )
     .unwrap();
     let issue = &v["issue"];
@@ -176,16 +181,21 @@ fn patches_existing_issue_on_status_change_reopen() {
         .with_body(r#"{"number":5,"html_url":"u","state":"open"}"#)
         .create();
     let c = GithubClient::new(&s.url(), "t", UA);
+    // last_synced_title/body match the task, so status is the sole
+    // divergence — this isolates the status-change PATCH arm.
+    let empty = body_hash("");
     let v = push_task(
         &c,
         &cfg(&s.url()),
-        &task(
-            r#"{"id":"bl-5","title":"t","status":"in_progress",
-                "external":{"github-issues":{"issue":{
+        &task(&format!(
+            r#"{{"id":"bl-5","title":"t","status":"in_progress",
+                "external":{{"github-issues":{{"issue":{{
                     "number":5,"url":"u","state":"open",
                     "source":"balls","synced_at":"t",
-                    "last_synced_status":"open"}}}}"#,
-        ),
+                    "last_synced_status":"open",
+                    "last_synced_title":"t [bl-5]",
+                    "last_synced_body_hash":"{empty}"}}}}}}}}"#
+        )),
     )
     .unwrap();
     assert_eq!(v["issue"]["last_synced_status"], "in_progress");
