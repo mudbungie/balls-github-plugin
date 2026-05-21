@@ -1,0 +1,21 @@
+{
+  "branch": null,
+  "claimed_by": null,
+  "closed_at": null,
+  "closed_children": [],
+  "created_at": "2026-05-21T00:39:56.963593677Z",
+  "delivered_in": null,
+  "depends_on": [],
+  "description": "The issues plugin's projection key on task.external is 'github-issues' (hyphen) — fixed by PROJECTION_PREFIX in config.rs and the deserialization paths. Several prose mentions still use the underscore form 'github_issues' inherited from earlier drafts:\n\n- README.md (workspace): the table row describing the issues plugin says 'task.external.github_issues.*'.\n- crates/balls-plugin-github-issues/README.md: 'Why two binaries' section still references 'task.external.github_issues.*'.\n- A few docstring comments in src/ may still spell it with an underscore.\n\nThe code is fine — only docs drift. Audit and normalize to 'github-issues' (hyphen) so anyone grep'ing for the key in docs finds matching code.\n\nACCEPTANCE:\n- grep -rn 'github_issues' across the repo returns no docs hits (or only intentional ones).\n- Code paths unchanged.",
+  "external": {},
+  "id": "bl-21d3",
+  "links": [],
+  "parent": null,
+  "priority": 4,
+  "repo": "git@github.com:mudbungie/balls-github-plugin.git",
+  "status": "open",
+  "tags": ["docs"],
+  "title": "Docs: normalize projection key spelling to 'github-issues' (hyphen)",
+  "type": "task",
+  "updated_at": "2026-05-21T00:39:56.963593677Z"
+}
