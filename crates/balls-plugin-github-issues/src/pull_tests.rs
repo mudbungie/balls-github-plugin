@@ -183,6 +183,58 @@ fn list_issues_drops_pull_request_entries() {
     assert_eq!(issues[0].number, 1);
 }
 
+// bl-bb66 regression: GH defaults to 30 issues/page. An unpaginated
+// listing made every off-page-1 mirrored task look externally-deleted
+// (the delete-sweep flipped live tasks to `deferred`). list_issues
+// must follow the `Link` rel="next" chain so the returned vec is the
+// complete issue set across pages.
+#[test]
+fn list_issues_follows_pagination() {
+    let mut s = mockito::Server::new();
+    let next_url = format!("{}/repos/o/n/issues?state=all&per_page=100&page=2", s.url());
+    // Page 2 mock first so it wins for the page=2 request; page 1
+    // (no `page` param) falls through to the second, query-agnostic mock.
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .match_query(mockito::Matcher::UrlEncoded("page".into(), "2".into()))
+        .with_status(200)
+        .with_body(
+            r#"[{"number":2,"title":"b","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
+        )
+        .create();
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+        .with_status(200)
+        .with_header("link", &format!(r#"<{next_url}>; rel="next""#))
+        .with_body(
+            r#"[{"number":1,"title":"a","state":"open","html_url":"u",
+                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
+        )
+        .create();
+    let c = GithubClient::new(&s.url(), "t", UA);
+    let nums: Vec<u64> = list_issues(&c, "o", "n")
+        .unwrap()
+        .iter()
+        .map(|i| i.number)
+        .collect();
+    assert_eq!(nums, vec![1, 2]);
+}
+
+// next_page_url branch coverage: a `next` rel returns the bare URL;
+// a header carrying only other rels (or a malformed semicolon-less
+// part) yields None so the walk terminates.
+#[test]
+fn next_page_url_parsing() {
+    assert_eq!(
+        next_page_url(r#"<https://api/issues?page=2>; rel="next", <https://api/issues?page=9>; rel="last""#),
+        Some("https://api/issues?page=2".to_string())
+    );
+    assert_eq!(
+        next_page_url(r#"<https://api/issues?page=9>; rel="last""#),
+        None
+    );
+    assert_eq!(next_page_url("garbage-no-semicolon"), None);
+}
+
 #[test]
 fn list_issues_propagates_api_error() {
     let mut s = mockito::Server::new();

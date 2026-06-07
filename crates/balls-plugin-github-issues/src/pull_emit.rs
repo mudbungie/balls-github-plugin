@@ -132,8 +132,9 @@ pub(crate) fn bound_body(body: &str) -> (String, bool) {
 
 /// Sweep tasks for stored issue numbers no longer present in
 /// `known_numbers` and emit per `on_external_delete` policy.
-/// Capped by `max_emits` so a mass-delete (or a pagination-induced
-/// false-positive) is bounded — the runtime call site uses
+/// `known_numbers` is the fully-paginated issue set (bl-bb66), so a
+/// miss means a genuine external delete. Capped by `max_emits` so a
+/// real mass-delete is bounded — the runtime call site uses
 /// `MAX_DELETES_PER_SYNC`; tests pass a smaller cap to exercise the
 /// overflow branch without needing 500+ fixture tasks.
 pub fn sweep_deletes(
