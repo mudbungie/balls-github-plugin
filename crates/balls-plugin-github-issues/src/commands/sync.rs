@@ -8,12 +8,11 @@
 //!    issue numbers that did NOT appear in the GH list → those are
 //!    "deleted from GH"; emit per `on_external_delete` policy.
 //!
-//! Pagination is not implemented (B4a documents that as a known
-//! limitation); on a repo where stored issue #5000 isn't in the
-//! first page returned by GH, B4d would mis-classify it as deleted.
-//! Bounded by MAX_DELETES_PER_SYNC at the loop level so a
-//! pagination-induced false-positive doesn't cascade. Pagination is
-//! a follow-up ball.
+//! `list_issues` paginates to completion (bl-bb66), so the
+//! `known_numbers` fed to the delete-sweep is the COMPLETE issue set;
+//! an off-page-1 issue no longer reads as deleted. MAX_DELETES_PER_SYNC
+//! remains as a defense-in-depth bound on a genuine mass-delete, not a
+//! patch over a truncated listing.
 
 use crate::config::PluginConfig;
 use crate::pull::{classify, list_issues, Classification};
@@ -71,9 +70,9 @@ pub fn run(_filter: Option<&str>, config_path: &Path, auth_dir: &Path) -> Result
     }
 
     // B4d: balls tasks whose stored issue number is not in the
-    // listing are externally deleted (subject to pagination caveat).
-    // The cap is enforced in sweep_deletes so the overflow branch is
-    // testable with a small cap rather than 500+ fixture tasks.
+    // (fully-paginated) listing are externally deleted. The cap is
+    // enforced in sweep_deletes so the overflow branch is testable
+    // with a small cap rather than 500+ fixture tasks.
     report
         .updated
         .extend(sweep_deletes(&tasks, &known_numbers, &config, MAX_DELETES_PER_SYNC));

@@ -145,27 +145,59 @@ pub fn classify(issue: &GhIssue, tasks: &[Task], config: &PluginConfig) -> Class
 }
 
 /// `GET /repos/{o}/{n}/issues?state=all` — the bulk-listing entry
-/// point B4a uses to feed classify. Pull pagination is intentionally
-/// not handled in B4a (one page = whatever GH defaults to, 30); the
-/// bl-4673 ingest backstops are the safety net, and B4c's
-/// creates-flood tests stress them. Pagination is a future concern.
+/// point B4a uses to feed classify. Walks GH's pagination to
+/// completion (per_page=100, following each response's `Link`
+/// rel="next") so the returned vec is the WHOLE issue set, not just
+/// page 1. This is load-bearing for the delete-sweep (bl-bb66): GH
+/// defaults to 30/page, so an unpaginated listing made every
+/// off-page-1 mirrored task look externally-deleted and flipped it to
+/// `deferred`. A partial listing is never authoritative — any page
+/// fetch that errors propagates here, so the caller bails before the
+/// sweep rather than sweeping against a truncated `known_numbers`.
 pub fn list_issues(client: &GithubClient, owner: &str, name: &str) -> Result<Vec<GhIssue>> {
-    let url = format!("{}/repos/{}/{}/issues", client.api_base(), owner, name);
-    let resp = GithubClient::check(
-        client
-            .auth(client.http().get(&url))
-            .query(&[("state", "all")])
-            .send()?,
-    )?;
-    // GH's "issues" endpoint returns PRs too; entries with a
-    // `pull_request` sub-object are PRs and must be dropped before
-    // they reach classify, or every release-plz PR becomes an
-    // auto-created task whose later close would rewrite the PR title.
-    let issues: Vec<GhIssue> = resp.json()?;
-    Ok(issues
-        .into_iter()
-        .filter(|i| i.pull_request.is_none())
-        .collect())
+    let mut url = format!(
+        "{}/repos/{}/{}/issues?state=all&per_page=100",
+        client.api_base(),
+        owner,
+        name
+    );
+    let mut all = Vec::new();
+    loop {
+        let resp = GithubClient::check(client.auth(client.http().get(&url)).send()?)?;
+        // Read the next-page link before `json()` consumes the response.
+        let next = resp
+            .headers()
+            .get("link")
+            .and_then(|v| v.to_str().ok())
+            .and_then(next_page_url);
+        // GH's "issues" endpoint returns PRs too; entries with a
+        // `pull_request` sub-object are PRs and must be dropped before
+        // they reach classify, or every release-plz PR becomes an
+        // auto-created task whose later close would rewrite the PR title.
+        let page: Vec<GhIssue> = resp.json()?;
+        all.extend(page.into_iter().filter(|i| i.pull_request.is_none()));
+        match next {
+            Some(n) => url = n,
+            None => return Ok(all),
+        }
+    }
+}
+
+/// Parse a GH `Link` response header and return the `rel="next"` URL
+/// if present. The header is a comma-separated list of
+/// `<url>; rel="kind"` entries; GH gives the next URL fully-formed
+/// (query params included), so the walk just follows it verbatim. A
+/// `None` means no further pages (last page reached).
+fn next_page_url(link_header: &str) -> Option<String> {
+    link_header.split(',').find_map(|part| {
+        let (url_seg, rest) = part.split_once(';')?;
+        if rest.split(';').any(|s| s.trim() == r#"rel="next""#) {
+            let url = url_seg.trim().trim_start_matches('<').trim_end_matches('>');
+            Some(url.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]
