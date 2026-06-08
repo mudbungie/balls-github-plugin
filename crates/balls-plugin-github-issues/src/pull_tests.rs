@@ -1,291 +1,298 @@
-//! Tests for `pull.rs`. Lives in a sibling file (rather than the
-//! inline `#[cfg(test)] mod tests` idiom) so `pull.rs` stays under
-//! the 300-line cap. The split is mechanical; assertions are
-//! unchanged.
+//! Tests for the pull (sync) reconcile. A fixture wires a mockito GitHub
+//! server, a fake `bl` (records argv, prints a fixed id for `create`), a temp
+//! store, and a temp territory.
 
 use super::*;
-use crate::pull_emit::created_from;
-use serde_json::Value;
+use crate::config::{CloseMirror, OnExternalDelete};
+use std::ffi::OsString;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 
 const UA: &str = "balls-plugin-github-issues-test";
+const NEW_ID: &str = "bl-abcd";
 
-fn cfg(label: Option<&str>) -> PluginConfig {
-    let extra = label
-        .map(|l| format!(r#","target_label":{:?}"#, l))
-        .unwrap_or_default();
-    serde_json::from_str(&format!(r#"{{"repo":"o/n"{}}}"#, extra)).unwrap()
+struct Fixture {
+    server: mockito::ServerGuard,
+    store: PathBuf,
+    territory: PathBuf,
+    bl_log: PathBuf,
+    bl_bin: OsString,
+    _dir: tempfile::TempDir,
 }
 
-fn issue(num: u64, title: &str, updated_at: &str, labels: &[&str]) -> GhIssue {
-    GhIssue {
-        number: num,
-        title: title.into(),
-        body: None,
-        state: "open".into(),
-        html_url: "u".into(),
-        updated_at: updated_at.into(),
-        labels: labels
-            .iter()
-            .map(|n| GhLabel { name: (*n).into() })
-            .collect(),
-        pull_request: None,
+impl Fixture {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("store");
+        std::fs::create_dir_all(store.join("tasks")).unwrap();
+        let territory = dir.path().join("territory");
+        let bl_log = dir.path().join("bl.log");
+        let bl_bin = dir.path().join("bl");
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" >> {log}\nif [ \"$1\" = create ]; then echo 'create {id}'; fi\nexit 0\n",
+            log = bl_log.display(),
+            id = NEW_ID,
+        );
+        std::fs::write(&bl_bin, script).unwrap();
+        std::fs::set_permissions(&bl_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Self { server: mockito::Server::new(), store, territory, bl_log, bl_bin: bl_bin.into(), _dir: dir }
+    }
+
+    fn write_ball(&self, id: &str, title: &str, body: &str) {
+        let md = format!("+++\ntitle = \"{title}\"\ncreated = 1\nupdated = 1\n+++\n{body}");
+        std::fs::write(self.store.join("tasks").join(format!("{id}.md")), md).unwrap();
+    }
+
+    fn cfg(&self, delete: OnExternalDelete, close: CloseMirror, label: Option<&str>) -> PluginConfig {
+        serde_json::from_str(&format!(
+            r#"{{"repo":"o/n","api_base":"{}","on_external_delete":"{}","close_mirror":"{}"{}}}"#,
+            self.server.url(),
+            match delete {
+                OnExternalDelete::Deferred => "deferred",
+                OnExternalDelete::Closed => "closed",
+                OnExternalDelete::Noop => "noop",
+            },
+            match close {
+                CloseMirror::Authoritative => "authoritative",
+                CloseMirror::BestEffort => "best_effort",
+                CloseMirror::Off => "off",
+            },
+            label.map_or(String::new(), |l| format!(r#","target_label":"{l}""#)),
+        ))
+        .unwrap()
+    }
+
+    fn bl(&self) -> Bl {
+        Bl::new(self.bl_bin.clone(), self.store.clone(), "tester".into())
+    }
+
+    fn run(&mut self, cfg: &PluginConfig, base: &mut Base) -> Result<()> {
+        let client = GithubClient::new(cfg.api_base(), "tok", UA);
+        let bl = self.bl();
+        pull(&client, "o", "n", cfg, base, &self.store, &self.territory, &bl)
+    }
+
+    fn calls(&self) -> String {
+        std::fs::read_to_string(&self.bl_log).unwrap_or_default()
     }
 }
 
-fn task(json: &str) -> Task {
-    serde_json::from_str(json).unwrap()
-}
-
-#[test]
-fn matches_by_stored_number() {
-    let i = issue(7, "anything", "2026-01-02T00:00:00Z", &[]);
-    let t = task(
-        r#"{"id":"bl-1","title":"t","status":"open",
-            "external":{"github-issues":{"issue":{
-                "number":7,"url":"u","state":"open",
-                "source":"balls","synced_at":"2026-01-01T00:00:00+00:00",
-                "last_synced_status":"open"}}}}"#,
-    );
-    assert_eq!(
-        classify(&i, &[t], &cfg(None)),
-        Classification::KnownUpdate {
-            task_id: "bl-1".into()
-        }
-    );
-}
-
-#[test]
-fn skips_when_synced_covers_update() {
-    let i = issue(7, "any", "2026-01-01T00:00:00Z", &[]);
-    let t = task(
-        r#"{"id":"bl-1","title":"t","status":"open",
-            "external":{"github-issues":{"issue":{
-                "number":7,"url":"u","state":"open",
-                "source":"balls","synced_at":"2026-01-02T00:00:00+00:00",
-                "last_synced_status":"open"}}}}"#,
-    );
-    assert_eq!(
-        classify(&i, &[t], &cfg(None)),
-        Classification::Skip(SkipReason::LoopAvoidance)
-    );
-}
-
-#[test]
-fn matches_by_title_tag_when_no_number() {
-    let i = issue(99, "Title [bl-1a2b]", "2026-01-01T00:00:00Z", &[]);
-    let t = task(r#"{"id":"bl-1a2b","title":"t","status":"open"}"#);
-    assert_eq!(
-        classify(&i, &[t], &cfg(None)),
-        Classification::KnownUpdate {
-            task_id: "bl-1a2b".into()
-        }
-    );
-}
-
-#[test]
-fn unmatched_issue_becomes_autocreate() {
-    let i = issue(99, "External report", "2026-01-01T00:00:00Z", &[]);
-    assert_eq!(classify(&i, &[], &cfg(None)), Classification::AutoCreate);
-}
-
-// bl-2202 regression: when a GH issue title carries a `[bl-xxxx]`
-// marker but the id is not in the task input (the original ball is
-// closed/archived — balls `all_tasks` is open-only), the classifier
-// must not AutoCreate. Otherwise the closed-mirror-re-ingest loop
-// fires: a closed GH issue mirrored from balls is read back as new,
-// a fresh ball gets created, push appends a second `[bl-yyyy]`, etc.
-#[test]
-fn orphaned_bl_tag_in_title_skips_instead_of_autocreating() {
-    let i = issue(37, "Vendor SHA-1 [bl-cb4e]", "2026-01-01T00:00:00Z", &[]);
-    assert_eq!(
-        classify(&i, &[], &cfg(None)),
-        Classification::Skip(SkipReason::OrphanedBlTag)
-    );
-}
-
-#[test]
-fn label_filter_skips_non_matching_issues() {
-    let i = issue(99, "Without label", "2026-01-01T00:00:00Z", &[]);
-    assert_eq!(
-        classify(&i, &[], &cfg(Some("balls:track"))),
-        Classification::Skip(SkipReason::LabelFilter)
-    );
-
-    let i2 = issue(
-        99,
-        "With label",
-        "2026-01-01T00:00:00Z",
-        &["other", "balls:track"],
-    );
-    assert_eq!(
-        classify(&i2, &[], &cfg(Some("balls:track"))),
-        Classification::AutoCreate
-    );
-}
-
-#[test]
-fn malformed_title_tag_falls_through_to_autocreate() {
-    assert!(extract_bl_id("nope [bl-xxxx]").is_none());
-    assert!(extract_bl_id("nope [bl-12]").is_none());
-    assert!(extract_bl_id("bl-1a2b").is_none());
-    assert_eq!(extract_bl_id("T [bl-1a2b]").as_deref(), Some("bl-1a2b"));
-    assert_eq!(
-        extract_bl_id("T [bl-1a2b3c4d]").as_deref(),
-        Some("bl-1a2b3c4d")
-    );
-}
-
-#[test]
-fn unparseable_timestamps_do_not_skip() {
-    assert!(!synced_covers_update("not-a-date", "2026-01-01T00:00:00Z"));
-    assert!(!synced_covers_update("2026-01-01T00:00:00Z", "not-a-date"));
-}
-
-#[test]
-fn list_issues_round_trip() {
-    let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+fn list_mock(f: &mut Fixture, body: &str) -> mockito::Mock {
+    f.server
+        .mock("GET", "/repos/o/n/issues?state=all&per_page=100")
         .with_status(200)
-        .with_body(
-            r#"[{"number":1,"title":"a","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
-        )
-        .create();
-    let c = GithubClient::new(&s.url(), "t", UA);
-    let issues = list_issues(&c, "o", "n").unwrap();
-    assert_eq!(issues.len(), 1);
-    assert_eq!(issues[0].number, 1);
+        .with_body(body)
+        .create()
 }
 
-// bl-b233 regression: `GET /repos/{o}/{n}/issues` returns PRs too,
-// distinguished by a non-null `pull_request` sub-object on each entry.
-// Without filtering, every release-plz PR was auto-created as a balls
-// task and a later close rewrote the PR title on GH. The filter must
-// drop the PR silently and pass the plain issue through.
+fn snap(number: u64, title: &str, body: &str, state: &str) -> Snapshot {
+    Snapshot { number, title: title.into(), body_hash: body_hash(body), state: state.into() }
+}
+
 #[test]
-fn list_issues_drops_pull_request_entries() {
-    let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+fn autocreate_imports_open_unmarked_issue() {
+    let mut f = Fixture::new();
+    let list = list_mock(&mut f, r#"[{"number":5,"title":"External","state":"open","body":"rep"}]"#);
+    let stamp = f
+        .server
+        .mock("PATCH", "/repos/o/n/issues/5")
+        .match_body(r#"{"title":"External [bl-abcd]"}"#)
         .with_status(200)
-        .with_body(
-            r#"[
-                {"number":1,"title":"real issue","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[]},
-                {"number":2,"title":"a PR","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[],
-                 "pull_request":{"url":"https://api.github.com/repos/o/n/pulls/2"}}
-            ]"#,
-        )
+        .with_body(r#"{"number":5,"state":"open"}"#)
         .create();
-    let c = GithubClient::new(&s.url(), "t", UA);
-    let issues = list_issues(&c, "o", "n").unwrap();
-    assert_eq!(issues.len(), 1);
-    assert_eq!(issues[0].number, 1);
+    let mut base = Base::default();
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
+    list.assert();
+    stamp.assert();
+    assert!(f.calls().contains("create External --body rep"));
+    let s = base.get(NEW_ID).unwrap();
+    assert_eq!(s.number, 5);
+    assert_eq!(s.title, "External");
 }
 
-// bl-bb66 regression: GH defaults to 30 issues/page. An unpaginated
-// listing made every off-page-1 mirrored task look externally-deleted
-// (the delete-sweep flipped live tasks to `deferred`). list_issues
-// must follow the `Link` rel="next" chain so the returned vec is the
-// complete issue set across pages.
 #[test]
-fn list_issues_follows_pagination() {
-    let mut s = mockito::Server::new();
-    let next_url = format!("{}/repos/o/n/issues?state=all&per_page=100&page=2", s.url());
-    // Page 2 mock first so it wins for the page=2 request; page 1
-    // (no `page` param) falls through to the second, query-agnostic mock.
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
-        .match_query(mockito::Matcher::UrlEncoded("page".into(), "2".into()))
+fn linked_issue_reasserts_content_when_drifted() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-1a2b", "Real title", "real body");
+    list_mock(&mut f, r#"[{"number":9,"title":"Drifted [bl-1a2b]","state":"open","body":"old"}]"#);
+    let patch = f
+        .server
+        .mock("PATCH", "/repos/o/n/issues/9")
+        .match_body(r#"{"body":"real body","title":"Real title [bl-1a2b]"}"#)
         .with_status(200)
-        .with_body(
-            r#"[{"number":2,"title":"b","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
-        )
+        .with_body(r#"{"number":9,"state":"open"}"#)
         .create();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
+    let mut base = Base::default();
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
+    patch.assert();
+    assert_eq!(base.get("bl-1a2b").unwrap().title, "Real title");
+}
+
+#[test]
+fn linked_issue_converged_makes_no_patch() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-1a2b", "Same", "body");
+    list_mock(&mut f, r#"[{"number":9,"title":"Same [bl-1a2b]","state":"open","body":"body"}]"#);
+    // No PATCH mock: a stray PATCH would 501 and error the run.
+    let mut base = Base::default();
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
+    assert_eq!(base.get("bl-1a2b").unwrap().number, 9);
+}
+
+#[test]
+fn close_mirror_closes_live_task() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-1a2b", "T", "b");
+    list_mock(&mut f, r#"[{"number":9,"title":"T [bl-1a2b]","state":"closed","body":"b"}]"#);
+    let mut base = Base::default();
+    base.set("bl-1a2b", snap(9, "T", "b", "open"));
+    // best_effort also mirrors the close (only `off` opts out).
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::BestEffort, None), &mut base).unwrap();
+    assert!(f.calls().contains("close bl-1a2b"));
+    assert!(base.get("bl-1a2b").is_none());
+}
+
+#[test]
+fn close_mirror_off_reasserts_instead() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-1a2b", "T", "b");
+    // Closed on GH but close_mirror=off and content matches → no close, no patch.
+    list_mock(&mut f, r#"[{"number":9,"title":"T [bl-1a2b]","state":"closed","body":"b"}]"#);
+    let mut base = Base::default();
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Off, None), &mut base).unwrap();
+    assert!(!f.calls().contains("close"));
+    assert_eq!(base.get("bl-1a2b").unwrap().state, "closed");
+}
+
+#[test]
+fn linked_task_gone_catches_up_close() {
+    let mut f = Fixture::new();
+    // ball file absent; issue still open and marked.
+    list_mock(&mut f, r#"[{"number":9,"title":"Ghost [bl-dead]","state":"open","body":""}]"#);
+    let close = f
+        .server
+        .mock("PATCH", "/repos/o/n/issues/9")
+        .match_body(r#"{"state":"closed"}"#)
         .with_status(200)
-        .with_header("link", &format!(r#"<{next_url}>; rel="next""#))
-        .with_body(
-            r#"[{"number":1,"title":"a","state":"open","html_url":"u",
-                 "updated_at":"2026-01-01T00:00:00Z","labels":[]}]"#,
-        )
+        .with_body(r#"{"number":9,"state":"closed"}"#)
         .create();
-    let c = GithubClient::new(&s.url(), "t", UA);
-    let nums: Vec<u64> = list_issues(&c, "o", "n")
-        .unwrap()
-        .iter()
-        .map(|i| i.number)
-        .collect();
-    assert_eq!(nums, vec![1, 2]);
-}
-
-// next_page_url branch coverage: a `next` rel returns the bare URL;
-// a header carrying only other rels (or a malformed semicolon-less
-// part) yields None so the walk terminates.
-#[test]
-fn next_page_url_parsing() {
-    assert_eq!(
-        next_page_url(r#"<https://api/issues?page=2>; rel="next", <https://api/issues?page=9>; rel="last""#),
-        Some("https://api/issues?page=2".to_string())
-    );
-    assert_eq!(
-        next_page_url(r#"<https://api/issues?page=9>; rel="last""#),
-        None
-    );
-    assert_eq!(next_page_url("garbage-no-semicolon"), None);
+    let mut base = Base::default();
+    base.set("bl-dead", snap(9, "Ghost", "", "open"));
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
+    close.assert();
+    assert!(base.get("bl-dead").is_none());
 }
 
 #[test]
-fn list_issues_propagates_api_error() {
-    let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/issues".into()))
-        .with_status(503)
-        .with_body("down")
+fn sweep_defers_then_closes_vanished_issues() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-gone", "G", "b");
+    list_mock(&mut f, "[]"); // nothing on GH → every base entry vanished
+    let mut base = Base::default();
+    base.set("bl-gone", snap(3, "G", "b", "open"));
+    base.set("bl-dead", snap(4, "D", "b", "open")); // no ball → forgotten, no verb
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
+    assert!(f.calls().contains("update bl-gone -t deferred"));
+    assert!(base.get("bl-dead").is_none()); // stale link dropped
+
+    // Closed policy on the same vanished-but-live ball.
+    let mut f2 = Fixture::new();
+    f2.write_ball("bl-gone", "G", "b");
+    list_mock(&mut f2, "[]");
+    let mut base2 = Base::default();
+    base2.set("bl-gone", snap(3, "G", "b", "open"));
+    f2.run(&f2.cfg(OnExternalDelete::Closed, CloseMirror::Authoritative, None), &mut base2).unwrap();
+    assert!(f2.calls().contains("close bl-gone"));
+    assert!(base2.get("bl-gone").is_none());
+}
+
+#[test]
+fn sweep_noop_policy_leaves_task() {
+    let mut f = Fixture::new();
+    f.write_ball("bl-gone", "G", "b");
+    list_mock(&mut f, "[]");
+    let mut base = Base::default();
+    base.set("bl-gone", snap(3, "G", "b", "open"));
+    f.run(&f.cfg(OnExternalDelete::Noop, CloseMirror::Authoritative, None), &mut base).unwrap();
+    assert!(f.calls().is_empty()); // no verb shelled
+    assert!(base.get("bl-gone").is_some());
+}
+
+#[test]
+fn target_label_filters_and_closed_issues_are_not_imported() {
+    let mut f = Fixture::new();
+    list_mock(
+        &mut f,
+        r#"[{"number":1,"title":"unlabelled","state":"open","body":""},
+            {"number":2,"title":"done","state":"closed","body":"","labels":[{"name":"track"}]}]"#,
+    );
+    let mut base = Base::default();
+    f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, Some("track")), &mut base)
+        .unwrap();
+    // #1 filtered (no label); #2 in scope but closed → not auto-created.
+    assert!(f.calls().is_empty());
+    assert!(base.entries.is_empty());
+}
+
+#[test]
+fn list_error_aborts_the_sync() {
+    let mut f = Fixture::new();
+    f.server
+        .mock("GET", "/repos/o/n/issues?state=all&per_page=100")
+        .with_status(500)
         .create();
-    let c = GithubClient::new(&s.url(), "t", UA);
-    assert!(list_issues(&c, "o", "n").is_err());
+    let mut base = Base::default();
+    assert!(f
+        .run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base)
+        .is_err());
 }
 
-// Internal-helper coverage: extract_bl_id has a couple of branches
-// that the malformed_title_tag test exercises but the `find(']')?`
-// short-circuit needs its own case to cover the "no closing
-// bracket after [bl-" path.
 #[test]
-fn extract_bl_id_no_closing_bracket() {
-    assert!(extract_bl_id("Title [bl-1a2b open issue").is_none());
+fn autocreate_cap_blocks_further_imports() {
+    // Drive autocreate directly with the counter already at the cap.
+    let f = Fixture::new();
+    let client = GithubClient::new("http://127.0.0.1:1", "t", UA); // unreachable: must not be called
+    let bl = f.bl();
+    let issue: GhIssue =
+        serde_json::from_str(r#"{"number":1,"title":"x","state":"open","body":""}"#).unwrap();
+    let mut base = Base::default();
+    let mut created = MAX_AUTOCREATES;
+    autocreate(
+        "x",
+        &issue,
+        &f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None),
+        &mut base,
+        &bl,
+        &client,
+        "o",
+        "n",
+        &mut created,
+    )
+    .unwrap();
+    assert!(base.entries.is_empty());
+    assert!(f.calls().is_empty());
 }
 
-// bl-a2ea regression: a SyncCreate emitted by `created_from`, once
-// wrapped by core under the participant name `github-issues`, must
-// classify on the next poll as KnownUpdate (or Skip via loop
-// avoidance) — never AutoCreate. The earlier double-wrap plus the
-// underscore/hyphen key mismatch broke this round-trip and produced
-// a duplicate-create on every sync.
 #[test]
-fn sync_create_round_trips_to_known_not_autocreate() {
-    let i = issue(42, "External report", "2026-01-01T00:00:00Z", &[]);
-    let create = created_from(&i);
+fn truncate_body_caps_and_marks() {
+    let short = "small";
+    assert_eq!(truncate_body(short), short);
+    let big = "x".repeat(MAX_BODY_BYTES * 2);
+    let cut = truncate_body(&big);
+    assert!(cut.len() < big.len());
+    assert!(cut.contains("truncated by ingest defense"));
+    // A multibyte char straddling the cap forces the char-boundary backoff.
+    let multibyte = format!("{}{}", "x".repeat(MAX_BODY_BYTES - 1), "é".repeat(20));
+    assert!(truncate_body(&multibyte).contains("truncated"));
+}
 
-    // Mimic balls-core's sync_report::apply_created: insert the
-    // SyncCreate.external map verbatim under the participant name.
-    let outer = serde_json::json!({
-        "github-issues": Value::Object(create.external.clone()),
-    });
-    let task_json = serde_json::json!({
-        "id": "bl-mirror",
-        "title": create.title,
-        "status": create.status,
-        "external": outer,
-    });
-    let mirrored: Task = serde_json::from_value(task_json).unwrap();
-
-    let cls = classify(&i, &[mirrored], &cfg(None));
-    assert!(
-        matches!(
-            cls,
-            Classification::KnownUpdate { .. }
-                | Classification::Skip(SkipReason::LoopAvoidance)
-        ),
-        "expected KnownUpdate or Skip, got {cls:?}",
-    );
+#[test]
+fn labels_of_drops_target_and_caps() {
+    let f = Fixture::new();
+    let issue: GhIssue = serde_json::from_str(
+        r#"{"number":1,"title":"x","state":"open","labels":[{"name":"bug"},{"name":"track"}]}"#,
+    )
+    .unwrap();
+    let cfg = f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, Some("track"));
+    assert_eq!(labels_of(&issue, &cfg), vec!["bug".to_string()]);
 }

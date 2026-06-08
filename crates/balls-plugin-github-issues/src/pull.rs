@@ -1,203 +1,241 @@
-//! Pull-side identity matching + loop avoidance. B4a establishes
-//! the classification matrix; B4b/c/d each consume one
-//! classification kind and emit the corresponding SyncReport entry.
+//! Pull (GitHub → balls), the `sync` direction (bl-613d).
 //!
-//! Why this lives in one module: doing identity once, here, is what
-//! makes B4b/c/d clean leaves. If number-match / tag-match / loop-
-//! avoidance lived inline in three call sites, drift would surface
-//! as a duplicate-create or a ping-pong-status. The classifier is
-//! the load-bearing seam.
+//! Wired on `sync` (cwd = the live store checkout, §8). There is no return
+//! channel: instead of reporting changes for core to apply, the handler drives
+//! `bl` directly (`crate::shellback`). Per the locked authority model — balls
+//! owns content, GitHub owns only the close transition inward — the inward
+//! actions are exactly:
+//! - **auto-create**: an in-scope GitHub issue with no `[bl-xxxx]` marker and no
+//!   base link becomes a `bl create`; we then stamp the marker back onto it.
+//! - **close mirror**: a closed GitHub issue closes the live task (`bl close`).
+//! - **external-delete sweep**: a base-linked issue gone from the repo defers or
+//!   closes the task per `on_external_delete`.
+//! - **content re-assert**: when a still-open issue drifts from its ball, balls
+//!   wins — the ball's title/body is re-PATCHed OUT to GitHub.
+//!
+//! Reads of the store are direct (the title/body for comparison, the live-id
+//! set); every WRITE goes through a shelled verb so the lifecycle hooks run.
 
-use crate::config::PluginConfig;
-use crate::issues_api::IssuesTaskExt;
+use std::collections::HashSet;
+use std::path::Path;
+
 use balls_github_shared::error::Result;
 use balls_github_shared::http::GithubClient;
-use balls_github_shared::types::Task;
-use serde::Deserialize;
+use serde_json::json;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct GhLabel {
-    pub name: String,
-}
+use crate::base::{Base, Snapshot};
+use crate::config::{OnExternalDelete, PluginConfig};
+use crate::content::{body_hash, differs, mirror_close};
+use crate::issues_api::{self, GhIssue};
+use crate::shellback::Bl;
+use crate::{marker, store};
 
-/// The subset of a GH Issue the pull half consumes. Other API fields
-/// are dropped (serde §13 forward-compat).
-///
-/// `#[allow(dead_code)]` on the fields that B4a populates but does
-/// not yet read — `body`, `state`, `html_url` are consumed by
-/// B4b's content-mirror and `created` emission. Keeping the fields
-/// here means B4b/c add the consumers, not the fields.
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-pub struct GhIssue {
-    pub number: u64,
-    pub title: String,
-    #[serde(default)]
-    pub body: Option<String>,
-    pub state: String,
-    pub html_url: String,
-    pub updated_at: String,
-    #[serde(default)]
-    pub labels: Vec<GhLabel>,
-    /// `GET /repos/.../issues` returns PRs too; each PR carries a
-    /// non-null `pull_request` sub-object. We only need its presence,
-    /// not its shape, so a serde_json::Value placeholder is enough.
-    /// `list_issues` drops entries where this is `Some`.
-    #[serde(default)]
-    pub pull_request: Option<serde_json::Value>,
-}
+/// GitHub bodies can be huge; cap what we ingest into a ball. The cap is applied
+/// consistently (the ball receives the truncated body, and comparison truncates
+/// GitHub's body the same way) so a long issue never reads as perpetual drift.
+const MAX_BODY_BYTES: usize = 65_536;
+/// Cap labels mirrored onto an auto-created task.
+const MAX_LABELS: usize = 100;
+/// Bound auto-creates per sync — a runaway backstop (logged, never silent).
+const MAX_AUTOCREATES: usize = 500;
 
-impl GhIssue {
-    pub fn has_label(&self, name: &str) -> bool {
-        self.labels.iter().any(|l| l.name == name)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SkipReason {
-    /// `synced_at >= updated_at` — already saw this state.
-    LoopAvoidance,
-    /// Target-label filter is set and the issue lacks it.
-    LabelFilter,
-    /// Title carries a `[bl-xxxx]` marker but the id is not in the
-    /// task input. The marker means this issue was mirrored from
-    /// balls; the matching task is archived (the input is
-    /// open-only — see balls `store.all_tasks`) or otherwise absent.
-    /// AutoCreate would loop the closed task back into ready
-    /// (bl-2202).
-    OrphanedBlTag,
-}
-
-/// What the classifier says to do with a polled issue. B4a only
-/// emits these variants; the actions are wired in B4b/c/d. The
-/// `KnownDelete` variant is reserved for B4d (produced from a 404
-/// fetch on a previously-mirrored issue, not from the list path).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Classification {
-    Skip(SkipReason),
-    KnownUpdate { task_id: String },
-    AutoCreate,
-    #[allow(dead_code)] // B4d emits this; the enum carries the future shape now.
-    KnownDelete { task_id: String },
-}
-
-/// Extract `bl-xxxx` from a title like `"<anything> [bl-1a2b] <anything>"`.
-/// The id is 4 hex chars by default (balls's `id_length` default); we
-/// accept 4–32 hex to honor the `id_length` config knob without
-/// requiring the plugin to read core's config.
-fn extract_bl_id(title: &str) -> Option<String> {
-    let start = title.find("[bl-")?;
-    let rest = &title[start + 4..];
-    let end = rest.find(']')?;
-    let candidate = &rest[..end];
-    if (4..=32).contains(&candidate.len()) && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
-        Some(format!("bl-{candidate}"))
-    } else {
-        None
-    }
-}
-
-/// Compare RFC3339 timestamps. Loop avoidance returns true when the
-/// task's `synced_at` is at least as recent as the issue's
-/// `updated_at`, meaning we already saw (or wrote) this state.
-fn synced_covers_update(synced_at: &str, updated_at: &str) -> bool {
-    let s = chrono::DateTime::parse_from_rfc3339(synced_at);
-    let u = chrono::DateTime::parse_from_rfc3339(updated_at);
-    match (s, u) {
-        (Ok(s), Ok(u)) => s >= u,
-        // Unparseable on either side → don't skip; let the next layer
-        // see the issue rather than silently swallow it.
-        _ => false,
-    }
-}
-
-pub fn classify(issue: &GhIssue, tasks: &[Task], config: &PluginConfig) -> Classification {
-    if let Some(label) = &config.target_label {
-        if !issue.has_label(label) {
-            return Classification::Skip(SkipReason::LabelFilter);
+/// Run the pull reconcile. `store_dir` is the sync cwd; `territory` holds the base.
+#[allow(clippy::too_many_arguments)]
+pub fn pull(
+    client: &GithubClient,
+    owner: &str,
+    name: &str,
+    cfg: &PluginConfig,
+    base: &mut Base,
+    store_dir: &Path,
+    territory: &Path,
+    bl: &Bl,
+) -> Result<()> {
+    let issues = issues_api::list_issues(client, owner, name)?;
+    let known: HashSet<u64> = issues.iter().map(|i| i.number).collect();
+    let mut created = 0usize;
+    for issue in &issues {
+        if cfg.target_label.as_ref().is_some_and(|l| !issue.has_label(l)) {
+            continue;
         }
+        reconcile(issue, cfg, base, store_dir, bl, client, owner, name, &mut created)?;
     }
-
-    if let Some(task) = tasks
-        .iter()
-        .find(|t| t.issue_number() == Some(issue.number))
-    {
-        if let Some(synced) = task.synced_at() {
-            if synced_covers_update(synced, &issue.updated_at) {
-                return Classification::Skip(SkipReason::LoopAvoidance);
-            }
-        }
-        return Classification::KnownUpdate {
-            task_id: task.id.clone(),
-        };
-    }
-
-    if let Some(id) = extract_bl_id(&issue.title) {
-        if let Some(task) = tasks.iter().find(|t| t.id == id) {
-            return Classification::KnownUpdate {
-                task_id: task.id.clone(),
-            };
-        }
-        return Classification::Skip(SkipReason::OrphanedBlTag);
-    }
-
-    Classification::AutoCreate
+    sweep(base, &known, cfg, store_dir, bl)?;
+    base.save(territory)?;
+    Ok(())
 }
 
-/// `GET /repos/{o}/{n}/issues?state=all` — the bulk-listing entry
-/// point B4a uses to feed classify. Walks GH's pagination to
-/// completion (per_page=100, following each response's `Link`
-/// rel="next") so the returned vec is the WHOLE issue set, not just
-/// page 1. This is load-bearing for the delete-sweep (bl-bb66): GH
-/// defaults to 30/page, so an unpaginated listing made every
-/// off-page-1 mirrored task look externally-deleted and flipped it to
-/// `deferred`. A partial listing is never authoritative — any page
-/// fetch that errors propagates here, so the caller bails before the
-/// sweep rather than sweeping against a truncated `known_numbers`.
-pub fn list_issues(client: &GithubClient, owner: &str, name: &str) -> Result<Vec<GhIssue>> {
-    let mut url = format!(
-        "{}/repos/{}/{}/issues?state=all&per_page=100",
-        client.api_base(),
-        owner,
-        name
+#[allow(clippy::too_many_arguments)]
+fn reconcile(
+    issue: &GhIssue,
+    cfg: &PluginConfig,
+    base: &mut Base,
+    store_dir: &Path,
+    bl: &Bl,
+    client: &GithubClient,
+    owner: &str,
+    name: &str,
+    created: &mut usize,
+) -> Result<()> {
+    let (bare_ref, marker_id) = marker::strip(&issue.title);
+    let bare = bare_ref.to_string();
+    let linked = marker_id
+        .map(str::to_string)
+        .or_else(|| base.id_for_number(issue.number).map(str::to_string));
+    match linked {
+        Some(id) => linked_issue(&id, &bare, issue, cfg, base, store_dir, bl, client, owner, name),
+        None => autocreate(&bare, issue, cfg, base, bl, client, owner, name, created),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn linked_issue(
+    id: &str,
+    bare: &str,
+    issue: &GhIssue,
+    cfg: &PluginConfig,
+    base: &mut Base,
+    store_dir: &Path,
+    bl: &Bl,
+    client: &GithubClient,
+    owner: &str,
+    name: &str,
+) -> Result<()> {
+    let Some(ball) = store::read_ball(store_dir, id)? else {
+        // Task is gone; catch up an outward close the close.post may have missed,
+        // then forget the stale link.
+        if !issue.is_closed() {
+            issues_api::patch(client, owner, name, issue.number, &json!({ "state": "closed" }))?;
+        }
+        base.remove(id);
+        return Ok(());
+    };
+    // The one inward content exception: a GitHub close closes the task.
+    if mirror_close(issue.is_closed(), true, cfg.close_mirror) {
+        bl.close(id)?;
+        base.remove(id);
+        return Ok(());
+    }
+    // Content: balls wins. If the (effective) GitHub view drifts, re-assert.
+    let gh_body = truncate_body(issue.body_str());
+    if differs(bare, &gh_body, &ball.title, &ball.body) {
+        let marked = marker::append(&ball.title, id);
+        issues_api::patch(
+            client,
+            owner,
+            name,
+            issue.number,
+            &json!({ "title": marked, "body": ball.body }),
+        )?;
+    }
+    base.set(
+        id,
+        Snapshot {
+            number: issue.number,
+            title: ball.title,
+            body_hash: body_hash(&ball.body),
+            state: issue.state.clone(),
+        },
     );
-    let mut all = Vec::new();
-    loop {
-        let resp = GithubClient::check(client.auth(client.http().get(&url)).send()?)?;
-        // Read the next-page link before `json()` consumes the response.
-        let next = resp
-            .headers()
-            .get("link")
-            .and_then(|v| v.to_str().ok())
-            .and_then(next_page_url);
-        // GH's "issues" endpoint returns PRs too; entries with a
-        // `pull_request` sub-object are PRs and must be dropped before
-        // they reach classify, or every release-plz PR becomes an
-        // auto-created task whose later close would rewrite the PR title.
-        let page: Vec<GhIssue> = resp.json()?;
-        all.extend(page.into_iter().filter(|i| i.pull_request.is_none()));
-        match next {
-            Some(n) => url = n,
-            None => return Ok(all),
-        }
-    }
+    Ok(())
 }
 
-/// Parse a GH `Link` response header and return the `rel="next"` URL
-/// if present. The header is a comma-separated list of
-/// `<url>; rel="kind"` entries; GH gives the next URL fully-formed
-/// (query params included), so the walk just follows it verbatim. A
-/// `None` means no further pages (last page reached).
-fn next_page_url(link_header: &str) -> Option<String> {
-    link_header.split(',').find_map(|part| {
-        let (url_seg, rest) = part.split_once(';')?;
-        if rest.split(';').any(|s| s.trim() == r#"rel="next""#) {
-            let url = url_seg.trim().trim_start_matches('<').trim_end_matches('>');
-            Some(url.to_string())
-        } else {
-            None
+#[allow(clippy::too_many_arguments)]
+fn autocreate(
+    bare: &str,
+    issue: &GhIssue,
+    cfg: &PluginConfig,
+    base: &mut Base,
+    bl: &Bl,
+    client: &GithubClient,
+    owner: &str,
+    name: &str,
+    created: &mut usize,
+) -> Result<()> {
+    if issue.is_closed() {
+        return Ok(()); // don't import an already-closed external issue as new work
+    }
+    if *created >= MAX_AUTOCREATES {
+        eprintln!(
+            "github-issues: auto-create cap {MAX_AUTOCREATES} hit; issue #{} deferred to next sync",
+            issue.number
+        );
+        return Ok(());
+    }
+    let body = truncate_body(issue.body_str());
+    let labels = labels_of(issue, cfg);
+    let id = bl.create(bare, &body, &labels)?;
+    // Stamp the marker back so the next sync recognises the link (SSOT join).
+    let marked = marker::append(bare, &id);
+    issues_api::patch(client, owner, name, issue.number, &json!({ "title": marked }))?;
+    base.set(
+        &id,
+        Snapshot {
+            number: issue.number,
+            title: bare.to_string(),
+            body_hash: body_hash(&body),
+            state: issue.state.clone(),
+        },
+    );
+    *created += 1;
+    Ok(())
+}
+
+/// External-delete sweep: a base-linked issue absent from `known` vanished from
+/// the repo. Defer/close the live task per policy; forget a stale link.
+fn sweep(
+    base: &mut Base,
+    known: &HashSet<u64>,
+    cfg: &PluginConfig,
+    store_dir: &Path,
+    bl: &Bl,
+) -> Result<()> {
+    let vanished: Vec<String> = base
+        .entries
+        .iter()
+        .filter(|(_, s)| !known.contains(&s.number))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in vanished {
+        if !store::is_live(store_dir, &id) {
+            base.remove(&id);
+            continue;
         }
-    })
+        match cfg.on_external_delete {
+            OnExternalDelete::Deferred => bl.add_tag(&id, "deferred")?,
+            OnExternalDelete::Closed => {
+                bl.close(&id)?;
+                base.remove(&id);
+            }
+            OnExternalDelete::Noop => {}
+        }
+    }
+    Ok(())
+}
+
+/// Truncate an ingested body to [`MAX_BODY_BYTES`] on a char boundary, marking
+/// the cut. Applied symmetrically so it never reads as drift.
+fn truncate_body(body: &str) -> String {
+    if body.len() <= MAX_BODY_BYTES {
+        return body.to_string();
+    }
+    let mut end = MAX_BODY_BYTES;
+    while !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n\n[github-issues: body truncated by ingest defense]", &body[..end])
+}
+
+/// Label names mirrored onto an auto-created task: the target label is dropped
+/// (it is a tracking marker, not a semantic tag), and the list is capped.
+fn labels_of(issue: &GhIssue, cfg: &PluginConfig) -> Vec<String> {
+    issue
+        .labels
+        .iter()
+        .map(|l| l.name.clone())
+        .filter(|n| cfg.target_label.as_deref() != Some(n))
+        .take(MAX_LABELS)
+        .collect()
 }
 
 #[cfg(test)]
