@@ -2,7 +2,7 @@
 name = "balls-plugin-github"
 version = "0.1.0"
 edition = "2021"
-description = "GitHub forge plugin for balls: deferred-mode delivery via pull requests"
+description = "GitHub forge plugin for balls: the §11 forge delivery variant (gate child + PR push) over the §6/§7 subprocess protocol"
 license = "MIT"
 
 [[bin]]
@@ -11,12 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 balls-github-shared = { path = "../balls-github-shared" }
-chrono = { workspace = true }
-clap = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
