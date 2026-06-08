@@ -1,39 +1,46 @@
-mod cli;
-mod commands;
+//! `balls-plugin-github-issues` — the GitHub Issues mirror, ported to the §6/§7
+//! subprocess protocol (bl-613d).
+//!
+//! A thin process edge over [`dispatch`]: it resolves the host environment once
+//! (HOME/XDG, cwd, the `bl` binary, the import guard) — the bl-bfa8 "no env reads
+//! in the lib" rule — and hands the rest to [`dispatch::run`]. All policy lives
+//! in the handler modules; `main` only adapts the boundary.
+
+mod base;
 mod config;
+mod content;
+mod dispatch;
 mod issues_api;
-mod merge;
+mod marker;
 mod pull;
-mod pull_content;
-mod pull_emit;
-mod pull_emit_update;
+mod push;
+mod shellback;
+mod store;
+mod territory;
+mod wire;
 
-use clap::Parser;
-use cli::{Cli, Command};
+use std::env;
+use std::io;
+use std::path::PathBuf;
+use std::process::exit;
 
-/// User-Agent header for this plugin's GitHub API calls. Each
-/// participant in the workspace declares its own so audit logs on
-/// the GitHub side can tell them apart.
-pub const USER_AGENT: &str = "balls-plugin-github-issues";
+use dispatch::Env;
+use territory::Xdg;
 
 fn main() {
-    let cli = Cli::parse();
-    let result = match cli.command {
-        Command::AuthSetup { config, auth_dir } => commands::auth_setup::run(&config, &auth_dir),
-        Command::AuthCheck { config, auth_dir } => commands::auth_check::run(&config, &auth_dir),
-        Command::Push {
-            task,
-            config,
-            auth_dir,
-        } => commands::push::run(&task, &config, &auth_dir),
-        Command::Sync {
-            task,
-            config,
-            auth_dir,
-        } => commands::sync::run(task.as_deref(), &config, &auth_dir),
+    let args: Vec<String> = env::args().skip(1).collect();
+    let xdg = Xdg {
+        home: env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
+        state_home: env::var_os("XDG_STATE_HOME").map(PathBuf::from),
     };
-    if let Err(e) = result {
-        eprintln!("error: {}", e);
-        std::process::exit(1);
-    }
+    let cwd = env::current_dir().unwrap_or_default();
+    let env = Env {
+        xdg,
+        cwd: &cwd,
+        bl_bin: shellback::resolve_bin(env::var_os("BALLS_BIN")),
+        importing: env::var_os(shellback::IMPORT_GUARD).is_some(),
+        default_api_base: "https://api.github.com".to_string(),
+    };
+    let code = dispatch::run(&args, &mut io::stdin().lock(), &mut io::stdout().lock(), &env);
+    exit(code);
 }
