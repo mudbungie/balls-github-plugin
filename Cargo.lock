@@ -132,15 +132,11 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "balls-github-shared",
- "chrono",
- "clap",
  "mockito",
  "predicates",
- "reqwest",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror",
 ]
 
 [[package]]
