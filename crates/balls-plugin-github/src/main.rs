@@ -10,7 +10,7 @@
 //! close.pre  = ["balls-plugin-github"]                            # push + PR, NOT a local squash
 //! close.post = ["bl-delivery", "tracker"]                         # bl-delivery still tears the worktree down
 //! sync.post  = ["balls-plugin-github"]                            # close the gate child on merge
-//! drop.post  = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown
+//! unclaim.post = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown
 //! ```
 //!
 //! `main` only adapts the process boundary: it reads the §6 env ONCE here (the

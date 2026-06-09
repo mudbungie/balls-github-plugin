@@ -14,7 +14,7 @@ use serde::Deserialize;
 /// The §7 fields the forge plugin reads.
 #[derive(Debug, Deserialize)]
 pub struct Wire {
-    /// The invoking identity (`--as`). Threaded into `bl create/close/drop` for
+    /// The invoking identity (`--as`). Threaded into `bl create`/`bl close` for
     /// the gate child so its lifecycle is stamped with the same actor.
     #[serde(default)]
     pub actor: String,
@@ -45,7 +45,7 @@ impl Wire {
     }
 }
 
-/// Resolve the op's task id. A post hook (`claim`/`drop`) carries it as the
+/// Resolve the op's task id. A post hook (`claim`/`unclaim`) carries it as the
 /// sealed `bl-id` trailer in `metadata`; a pre hook (`close`) does not — it is
 /// read back from the single changed `tasks/<id>.md` the op staged (`changed`
 /// lists those paths, run lazily so git is only spawned on the pre path). Zero

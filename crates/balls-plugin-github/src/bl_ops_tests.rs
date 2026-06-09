@@ -43,16 +43,13 @@ fn create_gate_errors_when_no_id_is_minted() {
 }
 
 #[test]
-fn close_and_drop_run_the_verb() {
+fn close_runs_the_verb() {
     let dir = tempfile::tempdir().unwrap();
     let bl = fake_bl(dir.path(), r#"printf '%s\n' "$*" > last.txt"#);
     let runner = Bl::new(&bl, dir.path(), "bob");
 
     runner.close("bl-g").unwrap();
     assert_eq!(std::fs::read_to_string(dir.path().join("last.txt")).unwrap().trim(), "close bl-g --as bob");
-
-    runner.drop("bl-g").unwrap();
-    assert_eq!(std::fs::read_to_string(dir.path().join("last.txt")).unwrap().trim(), "drop bl-g --as bob");
 }
 
 #[test]

@@ -16,11 +16,16 @@
 //!   empty deliverable) — auto-resolve the gate by closing it.
 //! - **`sync.post`** — close the gate child of every still-open task whose PR
 //!   has merged, unblocking the parent's next `bl close`.
-//! - **`drop.post`** — tear the PR/branch down and drop the orphaned gate child.
+//! - **`unclaim.post`** — tear the PR/branch down (abandonment is `unclaim`
+//!   then `close`, §11/§15 bl-65e0 — the `drop` verb is gone). The gate child
+//!   STAYS: the parent is still open and the gate is its §10 close-blocker —
+//!   resolving it here would re-open the gate bypass deleting `drop` closed.
+//!   The gate resolves later: empty `close.pre` auto-resolves it, a re-claim
+//!   reuses it (PR → merge → `sync`), or an approver closes it by hand.
 //!
-//! **Rollback (§14):** `rollback claim.post` drops the just-opened gate child;
+//! **Rollback (§14):** `rollback claim.post` closes the just-opened gate child;
 //! `rollback close.pre` is a NO-OP — a pushed branch + open PR is the correct
-//! in-review state, never undone (abandon is `bl drop`).
+//! in-review state, never undone (abandon is `bl unclaim` then `bl close`).
 //!
 //! The matrix is pure: every side effect goes through the [`Forge`] seam, so it
 //! is unit-tested against a fake without a repo, a network, or a real `bl`.
@@ -31,7 +36,7 @@ use balls_github_shared::error::Result;
 /// protocol 1 and handles the delivery ops whose hooks it wires into. balls
 /// reads it at install time, validates the wiring against it, and never persists
 /// it.
-pub const PROTOCOL_JSON: &str = r#"{"protocol":[1],"ops":["claim","close","drop","sync"]}"#;
+pub const PROTOCOL_JSON: &str = r#"{"protocol":[1],"ops":["claim","close","unclaim","sync"]}"#;
 
 /// The side-effecting acts the forge hooks need, behind a seam so [`dispatch`]
 /// is testable without a real repo / network / `bl`. The real impl is
@@ -46,10 +51,9 @@ pub trait Forge {
     fn recall_gate(&self, parent: &str) -> Result<Option<String>>;
     /// Forget the `parent → gate` link (the gate is resolved or abandoned).
     fn forget_gate(&self, parent: &str) -> Result<()>;
-    /// `bl close` the gate child (PR merged, or empty deliverable).
+    /// `bl close` the gate child (PR merged, empty deliverable, or rollback —
+    /// with the `drop` verb gone, close is the one terminal, §15 bl-65e0).
     fn close_gate(&self, gate: &str) -> Result<()>;
-    /// `bl drop` the gate child (rollback / parent drop).
-    fn drop_gate(&self, gate: &str) -> Result<()>;
     /// Commit any pending `work/<id>` worktree change so delivery loses nothing.
     fn capture(&self, id: &str, title: &str) -> Result<()>;
     /// Does `work/<id>` exist AND differ from `base`? (false = empty deliverable)
@@ -57,7 +61,7 @@ pub trait Forge {
     /// Push `work/<id>` and open/update its PR; return the PR URL (the §6 human
     /// hint balls forwards on stdout).
     fn push_pr(&self, id: &str, title: &str, base: &str) -> Result<String>;
-    /// `drop.post`: close the PR and delete the remote `work/<id>` branch.
+    /// `unclaim.post`: close the PR and delete the remote `work/<id>` branch.
     fn teardown(&self, id: &str) -> Result<()>;
     /// `sync`: has the PR for `parent`'s `work/<parent>` branch merged?
     fn pr_merged(&self, parent: &str) -> Result<bool>;
@@ -97,13 +101,12 @@ pub fn dispatch(
             Ok(None)
         }
         ("claim", "post", true) => {
-            release_gate(forge, &ctx.id, &|f, g| f.drop_gate(g))?;
+            release_gate(forge, &ctx.id)?;
             Ok(None)
         }
         ("close", "pre", false) => close_pre(forge, ctx),
-        ("drop", "post", false) => {
+        ("unclaim", "post", false) => {
             forge.teardown(&ctx.id)?;
-            release_gate(forge, &ctx.id, &|f, g| f.drop_gate(g))?;
             Ok(None)
         }
         ("sync", "post", false) => {
@@ -122,7 +125,7 @@ fn close_pre(forge: &dyn Forge, ctx: &Ctx) -> Result<Option<String>> {
     if forge.has_changes(&ctx.id, &ctx.base)? {
         Ok(Some(forge.push_pr(&ctx.id, &ctx.title, &ctx.base)?))
     } else {
-        release_gate(forge, &ctx.id, &|f, g| f.close_gate(g))?;
+        release_gate(forge, &ctx.id)?;
         Ok(None)
     }
 }
@@ -139,17 +142,12 @@ fn sync(forge: &dyn Forge) -> Result<()> {
     Ok(())
 }
 
-/// Resolve a remembered gate via `act` (close or drop) and forget the link — the
-/// shared shape behind empty-deliverable close, rollback, and parent drop. A
-/// parent with no remembered gate (a non-deliverable never gated) is a clean
-/// no-op.
-fn release_gate(
-    forge: &dyn Forge,
-    parent: &str,
-    act: &dyn Fn(&dyn Forge, &str) -> Result<()>,
-) -> Result<()> {
+/// Close a remembered gate and forget the link — the shared shape behind the
+/// empty-deliverable close and the claim rollback. A parent with no remembered
+/// gate (a non-deliverable never gated) is a clean no-op.
+fn release_gate(forge: &dyn Forge, parent: &str) -> Result<()> {
     if let Some(gate) = forge.recall_gate(parent)? {
-        act(forge, &gate)?;
+        forge.close_gate(&gate)?;
         forge.forget_gate(parent)?;
     }
     Ok(())

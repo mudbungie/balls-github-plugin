@@ -91,7 +91,6 @@ fn gate_lifecycle_uses_bl_and_territory() {
     assert_eq!(p.recall_gate("bl-p").unwrap().as_deref(), Some("bl-gate"));
     assert_eq!(p.pending_gates().unwrap(), vec![("bl-p".to_string(), "bl-gate".to_string())]);
     p.close_gate("bl-gate").unwrap();
-    p.drop_gate("bl-gate").unwrap();
     p.forget_gate("bl-p").unwrap();
     assert_eq!(p.recall_gate("bl-p").unwrap(), None);
 }

@@ -1,7 +1,7 @@
 //! Content reconciliation primitives (bl-613d).
 //!
 //! The greenfield verb surface (`bl update`) cannot set a ball's `title` or
-//! `body` — only `-t`/`-p`/`key=value` and create/close/drop. That ENFORCES the
+//! `body` — only `-t`/`-p`/`key=value` and create/close. That ENFORCES the
 //! plugin's locked authority model: *balls is authoritative for content; GitHub
 //! owns only the close transition inward.* So there is no inward title/body
 //! mirror to compute — when GitHub and balls disagree on content, balls wins and

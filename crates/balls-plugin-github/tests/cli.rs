@@ -120,7 +120,7 @@ fn protocol_self_describes() {
         .env_remove("BALLS_PLUGIN_NAME")
         .assert()
         .success()
-        .stdout(predicates::str::contains(r#""ops":["claim","close","drop","sync"]"#));
+        .stdout(predicates::str::contains(r#""ops":["claim","close","unclaim","sync"]"#));
 }
 
 #[test]

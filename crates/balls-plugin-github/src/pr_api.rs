@@ -55,7 +55,7 @@ pub fn create_pr(
     Ok(resp.json()?)
 }
 
-/// Close the PR `number` (teardown on `bl drop`).
+/// Close the PR `number` (the `unclaim.post` teardown).
 pub fn close_pr(client: &GithubClient, owner: &str, name: &str, number: u64) -> Result<()> {
     let url = format!("{}/{}", pulls_url(client, owner, name), number);
     GithubClient::check(
