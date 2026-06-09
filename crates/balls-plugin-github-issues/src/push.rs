@@ -98,22 +98,19 @@ fn upsert(
     let body = ball.body;
     let marked = marker::append(&bare, id);
 
-    match base.get(id).cloned() {
-        Some(snap) => {
-            let title_moved = bare != snap.title;
-            let body_moved = body_hash(&body) != snap.body_hash;
-            let reopen = snap.state != "open";
-            if !(title_moved || body_moved || reopen) {
-                return Ok(()); // nothing moved — loop-avoidance no-op
-            }
-            let fields = json!({ "title": marked, "state": "open", "body": &body });
-            issues_api::patch(client, owner, name, snap.number, &fields)?;
-            base.set(id, Snapshot { number: snap.number, title: bare, body_hash: body_hash(&body), state: "open".into() });
+    if let Some(snap) = base.get(id).cloned() {
+        let title_moved = bare != snap.title;
+        let body_moved = body_hash(&body) != snap.body_hash;
+        let reopen = snap.state != "open";
+        if !(title_moved || body_moved || reopen) {
+            return Ok(()); // nothing moved — loop-avoidance no-op
         }
-        None => {
-            let issue = issues_api::create_issue(client, owner, name, &marked, &body)?;
-            base.set(id, Snapshot { number: issue.number, title: bare, body_hash: body_hash(&body), state: issue.state });
-        }
+        let fields = json!({ "title": marked, "state": "open", "body": &body });
+        issues_api::patch(client, owner, name, snap.number, &fields)?;
+        base.set(id, Snapshot { number: snap.number, title: bare, body_hash: body_hash(&body), state: "open".into() });
+    } else {
+        let issue = issues_api::create_issue(client, owner, name, &marked, &body)?;
+        base.set(id, Snapshot { number: issue.number, title: bare, body_hash: body_hash(&body), state: issue.state });
     }
     base.save(territory)?;
     Ok(())

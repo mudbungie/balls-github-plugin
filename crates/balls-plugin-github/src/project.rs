@@ -81,13 +81,10 @@ impl Forge for Project {
     fn push_pr(&self, id: &str, title: &str, base: &str) -> Result<String> {
         self.git.push(&self.push_url, id)?;
         let head = Git::branch(id);
-        let pr = match pr_api::find_pr(&self.client, &self.owner, &self.name, &head)? {
-            Some(existing) => existing,
-            None => {
-                let qualified = format!("{}:{head}", self.owner);
-                let body = format!("Delivers {id} via balls forge delivery.");
-                pr_api::create_pr(&self.client, &self.owner, &self.name, &subject(title, id), &qualified, base, &body)?
-            }
+        let pr = if let Some(existing) = pr_api::find_pr(&self.client, &self.owner, &self.name, &head)? { existing } else {
+            let qualified = format!("{}:{head}", self.owner);
+            let body = format!("Delivers {id} via balls forge delivery.");
+            pr_api::create_pr(&self.client, &self.owner, &self.name, &subject(title, id), &qualified, base, &body)?
         };
         Ok(pr.html_url)
     }

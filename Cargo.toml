@@ -29,3 +29,19 @@ assert_cmd = "2"
 mockito = "1"
 predicates = "3"
 tempfile = "3"
+
+# Clippy policy, inherited by each crate via `[lints] workspace = true`.
+# Mirrors the balls core repo: `pedantic` as a warn floor (priority -1 so the
+# explicit allows below win), with the same five carve-outs core settled on.
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+doc_markdown = "allow"
+needless_pass_by_value = "allow"
+must_use_candidate = "allow"
+cast_precision_loss = "allow"
+# Plugin-specific carve-out (not in balls core): the issues plugin's domain has
+# `base` (the `Base` reconciliation cache) next to `bare` (a marker-stripped
+# title). Both names are exact for their meaning; the one-letter overlap is
+# incidental, so allow it rather than blur a precise name.
+similar_names = "allow"

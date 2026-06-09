@@ -41,7 +41,7 @@ impl Harness {
 }
 
 fn run_str(args: &[&str], stdin: &str, env: &Env) -> (i32, String) {
-    let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let owned: Vec<String> = args.iter().map(std::string::ToString::to_string).collect();
     let mut out = Vec::new();
     let code = run(&owned, &mut stdin.as_bytes(), &mut out, env);
     (code, String::from_utf8(out).unwrap())

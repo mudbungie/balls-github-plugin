@@ -65,13 +65,11 @@ fn main() {
 /// worktree a `close.pre` recovers its id from, §7).
 fn read_env() -> Env {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let state_home = env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".local/state"));
+    let state_home = env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
     Env {
         plugin_name: env::var("BALLS_PLUGIN_NAME").unwrap_or_else(|_| USER_AGENT.to_string()),
         state_home,
-        bl_program: env::var_os("BALLS_BL").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("bl")),
+        bl_program: env::var_os("BALLS_BL").map_or_else(|| PathBuf::from("bl"), PathBuf::from),
         cwd: env::current_dir().unwrap_or_default(),
     }
 }

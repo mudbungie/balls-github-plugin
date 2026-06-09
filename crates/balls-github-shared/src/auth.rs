@@ -41,9 +41,9 @@ pub fn save_token(auth_dir: &Path, api_base: &str, token: &str) -> Result<()> {
 pub fn load_token(auth_dir: &Path, api_base: &str) -> Result<String> {
     let path = token_path(auth_dir);
     let data = std::fs::read_to_string(&path)
-        .map_err(|e| PluginError::Auth(format!("no GitHub token ({}); run auth-setup", e)))?;
+        .map_err(|e| PluginError::Auth(format!("no GitHub token ({e}); run auth-setup")))?;
     let parsed: Token = serde_json::from_str(&data)
-        .map_err(|e| PluginError::Auth(format!("corrupt token file: {}", e)))?;
+        .map_err(|e| PluginError::Auth(format!("corrupt token file: {e}")))?;
     if parsed.api_base != api_base {
         return Err(PluginError::Auth(format!(
             "token was set up for {}, but config now targets {}; run auth-setup",

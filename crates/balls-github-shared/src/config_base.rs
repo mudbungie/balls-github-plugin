@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn owner_name_rejects_bad_forms() {
         let bad = |r: &str| {
-            serde_json::from_str::<RepoConfig>(&format!(r#"{{"repo":{:?}}}"#, r))
+            serde_json::from_str::<RepoConfig>(&format!(r#"{{"repo":{r:?}}}"#))
                 .unwrap()
                 .owner_name()
                 .is_none()

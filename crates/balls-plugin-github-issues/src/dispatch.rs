@@ -131,7 +131,7 @@ fn hook(op: &str, phase: &str, stdin: &mut impl Read, env: &Env) -> Result<()> {
     // Only the slots this plugin acts in pay the config/auth cost.
     let acts = matches!(
         (op, phase),
-        ("create" | "update" | "close" | "drop", "post") | ("sync", "post")
+        ("create" | "update" | "close" | "drop" | "sync", "post")
     );
     if !acts {
         return Ok(());
