@@ -151,15 +151,18 @@ fn acting_push_slot_loads_config_and_calls_github() {
     std::fs::create_dir_all(&invocation).unwrap();
     // store the token in territory(invocation)
     balls_github_shared::auth::save_token(&h.territory(invocation.to_str().unwrap()), "tok").unwrap();
+    // the store checkout push reads the ball's title/body from
+    let store = cwd.join("store");
+    std::fs::create_dir_all(store.join("tasks")).unwrap();
+    std::fs::write(store.join("tasks").join("bl-1a2b.md"), "+++\ntitle = \"Hi\"\ncreated = 1\n+++\nb").unwrap();
 
     let env = h.env(cwd, false, "x".into());
     let payload = format!(
         r#"{{"op":"create","phase":"post","actor":"me",
-            "binding":{{"landing":"{}","store":"/s","invocation_path":"{}"}},
-            "command":{{"op":"create","body_change":"b"}},
-            "current_state":{{"title":"Hi"}},
+            "binding":{{"landing":"{}","store":"{}","invocation_path":"{}"}},
             "metadata":{{"bl-id":["bl-1a2b"]}}}}"#,
         landing.display(),
+        store.display(),
         invocation.display(),
     );
     let (code, _) = run_str(&["create", "post"], &payload, &env);

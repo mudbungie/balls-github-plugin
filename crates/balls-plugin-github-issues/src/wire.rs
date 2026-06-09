@@ -5,16 +5,20 @@
 //! core's `wire::Payload`: serde silently drops every wire field we do not name,
 //! which keeps the type stable as the wire grows AND trims it to exactly what
 //! this plugin consumes. The op and phase arrive on argv (`<bin> <op> <phase>`,
-//! §6); the payload carries the binding, the staged body, the after-state title,
-//! and (post) the sealed `bl-id` in the §5 `metadata` trailers.
+//! §6); the payload carries the binding (the `store` checkout push and pull both
+//! read the ball from) and, on `post`, the sealed `bl-id` in the §5 `metadata`
+//! trailers. The op's content is NOT taken from the wire: both directions read
+//! the sealed ball's title and body from the store (`crate::store`), the single
+//! source of truth (bl-68db).
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
 /// §7 binding — only the three paths this plugin needs. `landing` is the
 /// `balls/config` checkout that holds the plugin config (§1/§4); `store` is the
-/// `tasks/` checkout the pull side reads; `invocation_path` is the project root
-/// that keys the plugin's territory and is the cwd the shelled `bl` runs in.
+/// `tasks/` checkout BOTH directions read the ball from (ff-merged to the seal
+/// before `post`, §8); `invocation_path` is the project root that keys the
+/// plugin's territory and is the cwd the shelled `bl` runs in.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Binding {
     #[serde(default)]
@@ -22,23 +26,6 @@ pub struct Binding {
     #[serde(default)]
     pub store: String,
     pub invocation_path: String,
-}
-
-/// §7 command — only `body_change`, the new markdown body when an op rewrites
-/// it. This is the ONLY way the body reaches the plugin: core skip-serializes
-/// `Task::body` (§3), so the task states never carry it.
-#[derive(Debug, Clone, Deserialize)]
-pub struct Command {
-    #[serde(default)]
-    pub body_change: Option<String>,
-}
-
-/// A greenfield task as it rides the §7 wire (`current_state`). Only `title` is
-/// needed — no `status`/`id`/`body` (§3: status derived, id is the filename and
-/// arrives as the `bl-id` metadata trailer, body skip-serialized).
-#[derive(Debug, Clone, Deserialize)]
-pub struct WireTask {
-    pub title: String,
 }
 
 /// One §7 payload as received on stdin, trimmed to the consumed fields. Absent
@@ -50,11 +37,6 @@ pub struct Payload {
     #[serde(default)]
     pub actor: String,
     pub binding: Binding,
-    #[serde(default)]
-    pub command: Option<Command>,
-    /// `post`: the sealed after-state (its `title`). Absent on `pre`/diffless.
-    #[serde(default)]
-    pub current_state: Option<WireTask>,
     /// §5 trailers parsed from the seal commit, incl. the sealed `bl-id`.
     #[serde(default)]
     pub metadata: Option<BTreeMap<String, Vec<String>>>,
@@ -65,12 +47,6 @@ impl Payload {
     #[must_use]
     pub fn id(&self) -> Option<&str> {
         self.metadata.as_ref()?.get("bl-id")?.first().map(String::as_str)
-    }
-
-    /// The new markdown body this op stages, if any (`command.body_change`).
-    #[must_use]
-    pub fn body_change(&self) -> Option<&str> {
-        self.command.as_ref()?.body_change.as_deref()
     }
 }
 
@@ -83,7 +59,9 @@ mod tests {
     }
 
     #[test]
-    fn reads_a_post_payload_with_id_and_body() {
+    fn reads_a_post_payload_with_id_and_binding() {
+        // The wire still carries `command`/`current_state`/`previous_state`; serde
+        // drops them silently — this plugin reads content from the store, not here.
         let p = parse(
             r#"{"op":"update","phase":"post","actor":"me",
                 "binding":{"remote":"x","tasks_branch":"balls/tasks","store":"/s","landing":"/l","invocation_path":"/proj"},
@@ -93,12 +71,11 @@ mod tests {
                 "metadata":{"bl-id":["bl-1a2b"],"bl-op":["update"]}}"#,
         );
         assert_eq!(p.op, "update");
+        assert_eq!(p.actor, "me");
         assert_eq!(p.binding.landing, "/l");
         assert_eq!(p.binding.store, "/s");
         assert_eq!(p.binding.invocation_path, "/proj");
         assert_eq!(p.id(), Some("bl-1a2b"));
-        assert_eq!(p.body_change(), Some("hello"));
-        assert_eq!(p.current_state.unwrap().title, "New [bl-1a2b]");
     }
 
     #[test]
@@ -107,8 +84,6 @@ mod tests {
             r#"{"op":"create","phase":"pre","binding":{"invocation_path":"/p"},"command":{"op":"create"}}"#,
         );
         assert!(p.id().is_none());
-        assert!(p.body_change().is_none());
-        assert!(p.current_state.is_none());
         assert_eq!(p.binding.invocation_path, "/p");
         assert_eq!(p.binding.landing, ""); // defaulted
     }
@@ -119,7 +94,7 @@ mod tests {
             r#"{"op":"sync","phase":"post","binding":{"store":"/s","landing":"/l","invocation_path":"/p"}}"#,
         );
         assert_eq!(p.op, "sync");
-        assert!(p.command.is_none());
+        assert_eq!(p.binding.store, "/s");
         assert!(p.id().is_none());
     }
 }
