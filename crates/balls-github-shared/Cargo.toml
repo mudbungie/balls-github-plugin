@@ -2,7 +2,7 @@
 name = "balls-github-shared"
 version = "0.1.0"
 edition = "2021"
-description = "Shared library for balls GitHub plugins (auth, HTTP, config base, plugin protocol types)"
+description = "Shared library for balls GitHub plugins (auth, HTTP, config base)"
 license = "MIT"
 
 [lib]
@@ -10,7 +10,6 @@ name = "balls_github_shared"
 path = "src/lib.rs"
 
 [dependencies]
-chrono = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

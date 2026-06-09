@@ -11,7 +11,7 @@ if ! command -v cargo-tarpaulin >/dev/null 2>&1; then
     exit 1
 fi
 
-THRESHOLD="${COVERAGE_THRESHOLD:-100}"
+THRESHOLD="${BALLS_COVERAGE_THRESHOLD:-100}"
 
 echo "Running cargo tarpaulin (threshold ${THRESHOLD}%)..."
 cargo tarpaulin \

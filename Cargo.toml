@@ -7,11 +7,9 @@ members = [
 ]
 
 # Shared dep versions — every crate in the workspace pulls from here via
-# `dep.workspace = true`. Keeps the two binaries (and the eventual
-# balls-github-shared crate that A2 introduces) on one resolution.
+# `dep.workspace = true`. Keeps the two binaries and the `balls-github-shared`
+# crate they both build on one resolution.
 [workspace.dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

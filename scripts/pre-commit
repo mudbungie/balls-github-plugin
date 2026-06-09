@@ -14,6 +14,14 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
+# Git invokes a hook with GIT_DIR, GIT_INDEX_FILE and friends exported.
+# They leak into every `git` subprocess the gates spawn: the plugins'
+# git-spawning tests (`git_ops`, `shellback`/`store`) `git init` a tempdir
+# then `git add`/`commit`, which those vars would silently retarget onto
+# THIS repo's index (GIT_DIR beats the child's chosen cwd). Scrub git's
+# repo-local env so clippy, the tests and tarpaulin run as from a clean shell.
+unset $(git rev-parse --local-env-vars)
+
 echo "pre-commit: clippy..."
 cargo clippy --workspace --all-targets -- -D warnings 2>&1
 
