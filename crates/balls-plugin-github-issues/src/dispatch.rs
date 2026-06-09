@@ -151,7 +151,8 @@ fn hook(op: &str, phase: &str, stdin: &mut impl Read, env: &Env) -> Result<()> {
         );
         pull::pull(&client, owner, name, &cfg, &mut base, store_dir, &territory, &bl)?;
     } else {
-        push::push(&payload, &client, owner, name, &mut base, &territory)?;
+        let store_dir = Path::new(&payload.binding.store);
+        push::push(&payload, &client, owner, name, &mut base, &territory, store_dir)?;
     }
     Ok(())
 }
