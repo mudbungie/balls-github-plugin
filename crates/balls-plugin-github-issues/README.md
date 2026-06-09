@@ -67,7 +67,7 @@ Committed, non-secret, on the landing at
 | Field | Required | Default | Meaning |
 |---|---|---|---|
 | `repo` | yes | — | `owner/name` of the GitHub repo. |
-| `api_base` | no | `https://api.github.com` | API root. Override for GitHub Enterprise. |
+| `api_base` | no | `https://api.github.com` | API root. Override for GitHub Enterprise. Must be `https://` (`http://` is allowed only on loopback); a non-default base is warned on stderr. |
 | `target_label` | no | unset | If set, only issues carrying this label are in sync scope. |
 | `on_external_delete` | no | `deferred` | `deferred` \| `closed` \| `noop`. |
 | `close_mirror` | no | `authoritative` | `authoritative` \| `best_effort` \| `off`. |

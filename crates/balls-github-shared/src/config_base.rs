@@ -22,8 +22,20 @@ pub struct RepoConfig {
     pub api_base: String,
 }
 
+const DEFAULT_API_BASE: &str = "https://api.github.com";
+
 fn default_api_base() -> String {
-    "https://api.github.com".to_string()
+    DEFAULT_API_BASE.to_string()
+}
+
+/// `http://` is acceptable only on loopback (mock-server tests, local
+/// dev). The prefix must end at a port, a path, or the string's end so
+/// look-alike hosts (`localhost.evil.com`, `127.0.0.10`) don't pass.
+fn is_loopback_http(base: &str) -> bool {
+    ["http://127.0.0.1", "http://localhost"].iter().any(|p| {
+        base.strip_prefix(p)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with('/'))
+    })
 }
 
 impl RepoConfig {
@@ -40,15 +52,30 @@ impl RepoConfig {
         self.api_base.trim_end_matches('/')
     }
 
-    /// Fail loudly if `repo` is malformed. Called by each plugin's
-    /// `load` after deserialization so the diagnostic happens once,
-    /// against the user's actual file.
+    /// Fail loudly if `repo` is malformed or `api_base` would carry the
+    /// bearer token over cleartext. Called by each plugin's `load` after
+    /// deserialization so the diagnostic happens once, against the
+    /// user's actual file.
     pub fn validate(&self) -> Result<()> {
         if self.owner_name().is_none() {
             return Err(PluginError::Config(format!(
                 "repo must be \"owner/name\", got {:?}",
                 self.repo
             )));
+        }
+        let base = self.api_base();
+        if !base.starts_with("https://") && !is_loopback_http(base) {
+            return Err(PluginError::Config(format!(
+                "api_base must be https:// — {base:?} would send the bearer token \
+                 in cleartext (http:// is allowed only on loopback: \
+                 127.0.0.1 / localhost)"
+            )));
+        }
+        if base != DEFAULT_API_BASE {
+            eprintln!(
+                "warning: api_base is {base:?}, not the github.com default \
+                 ({DEFAULT_API_BASE}); the API token will be sent there"
+            );
         }
         Ok(())
     }
@@ -109,6 +136,37 @@ mod tests {
     fn validate_accepts_well_formed() {
         let cfg: RepoConfig = serde_json::from_str(r#"{"repo":"o/n"}"#).unwrap();
         cfg.validate().unwrap();
+    }
+
+    fn with_base(base: &str) -> RepoConfig {
+        serde_json::from_str(&format!(r#"{{"repo":"o/n","api_base":{base:?}}}"#)).unwrap()
+    }
+
+    #[test]
+    fn validate_rejects_cleartext_api_base() {
+        let err = with_base("http://ghe.internal/api/v3").validate().unwrap_err().to_string();
+        assert!(err.contains("https://"), "{err}");
+        assert!(err.contains("cleartext"), "{err}");
+    }
+
+    #[test]
+    fn validate_allows_loopback_http() {
+        with_base("http://127.0.0.1:8080").validate().unwrap();
+        with_base("http://localhost:3000/api").validate().unwrap();
+        with_base("http://localhost").validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_loopback_lookalikes() {
+        assert!(with_base("http://localhost.evil.com").validate().is_err());
+        assert!(with_base("http://127.0.0.10").validate().is_err());
+        assert!(with_base("http://127.0.0.1.evil.com").validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_https_enterprise_base() {
+        // Non-default https base: valid (and warns on stderr).
+        with_base("https://ghe.x/api/v3/").validate().unwrap();
     }
 
     #[test]

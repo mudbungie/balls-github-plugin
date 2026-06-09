@@ -76,7 +76,7 @@ Git-tracked, non-secret, on the landing at
 |---|---|---|
 | `repo` | yes | `owner/name` of the GitHub repository. |
 | `target_branch` | no | Default PR base. A task's own `target_branch` (a preserved frontmatter key) overrides it. A forge PR needs a base *somewhere*: if both are unset, `close` errors rather than guessing `main`. |
-| `api_base` | no | API root. Override for GitHub Enterprise. Defaults to `https://api.github.com`. |
+| `api_base` | no | API root. Override for GitHub Enterprise. Defaults to `https://api.github.com`. Must be `https://` (`http://` is allowed only on loopback); a non-default base is warned on stderr. |
 
 The token is the only secret. It is read from **stdin** by `auth-setup`
 (scriptable, no TTY prompt) and stored under the plugin's XDG territory
