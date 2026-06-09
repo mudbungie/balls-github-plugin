@@ -14,6 +14,7 @@ pub mod auth;
 pub mod config_base;
 pub mod error;
 pub mod http;
+pub mod wire;
 
 #[cfg(test)]
 mod projection_boundary_test;

@@ -8,12 +8,8 @@
 //! nothing.
 
 use balls_github_shared::error::Result;
+pub use balls_github_shared::wire::{metadata_id, Binding, Metadata};
 use serde::Deserialize;
-use std::collections::BTreeMap;
-
-/// §5 trailer metadata: a key → its values. The sealed `bl-id` lives here on a
-/// post wire (it is not on a pre wire — the id is not sealed yet, §7).
-pub type Metadata = BTreeMap<String, Vec<String>>;
 
 /// The §7 fields the forge plugin reads.
 #[derive(Debug, Deserialize)]
@@ -29,17 +25,6 @@ pub struct Wire {
     pub current_state: Option<State>,
     #[serde(default)]
     pub rolling_back: Option<String>,
-}
-
-/// The binding fields forge needs: the project-repo root it pushes (§7/§11) and
-/// the landing checkout where its committed config lives (§4/§6). `landing`
-/// defaults empty — a diffless `sync` wire still carries it, but a fixture need
-/// not.
-#[derive(Debug, Default, Deserialize)]
-pub struct Binding {
-    pub invocation_path: String,
-    #[serde(default)]
-    pub landing: String,
 }
 
 /// The ball fields forge reads: the title (the gate-child + PR subject) and a
@@ -69,8 +54,8 @@ pub fn resolve_id(
     metadata: Option<&Metadata>,
     changed: impl FnOnce() -> Result<Vec<String>>,
 ) -> Result<String> {
-    if let Some(id) = metadata.and_then(|m| m.get("bl-id")).and_then(|v| v.first()) {
-        return Ok(id.clone());
+    if let Some(id) = metadata_id(metadata) {
+        return Ok(id.to_string());
     }
     let ids: Vec<String> = changed()?
         .iter()

@@ -11,22 +11,8 @@
 //! the sealed ball's title and body from the store (`crate::store`), the single
 //! source of truth (bl-68db).
 
+use balls_github_shared::wire::{metadata_id, Binding, Metadata};
 use serde::Deserialize;
-use std::collections::BTreeMap;
-
-/// §7 binding — only the three paths this plugin needs. `landing` is the
-/// `balls/config` checkout that holds the plugin config (§1/§4); `store` is the
-/// `tasks/` checkout BOTH directions read the ball from (ff-merged to the seal
-/// before `post`, §8); `invocation_path` is the project root that keys the
-/// plugin's territory and is the cwd the shelled `bl` runs in.
-#[derive(Debug, Clone, Deserialize)]
-pub struct Binding {
-    #[serde(default)]
-    pub landing: String,
-    #[serde(default)]
-    pub store: String,
-    pub invocation_path: String,
-}
 
 /// One §7 payload as received on stdin, trimmed to the consumed fields. Absent
 /// optionals default, so the same type decodes `pre`/`post`/`sync` shapes.
@@ -39,14 +25,14 @@ pub struct Payload {
     pub binding: Binding,
     /// §5 trailers parsed from the seal commit, incl. the sealed `bl-id`.
     #[serde(default)]
-    pub metadata: Option<BTreeMap<String, Vec<String>>>,
+    pub metadata: Option<Metadata>,
 }
 
 impl Payload {
     /// The sealed ball id, from the post `metadata` `bl-id` trailer.
     #[must_use]
     pub fn id(&self) -> Option<&str> {
-        self.metadata.as_ref()?.get("bl-id")?.first().map(String::as_str)
+        metadata_id(self.metadata.as_ref())
     }
 }
 
