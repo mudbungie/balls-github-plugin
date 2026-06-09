@@ -52,27 +52,37 @@ fn change_worktree(path: &Path, id: &str) {
     git(path, &["rm", "-q", &format!("tasks/{id}.md")]);
 }
 
+/// A fake `bl` that records every argv line to `<dir>/bl.log` and prints a
+/// minted id for `create` — the §6 shell-back seam, observable.
 fn fake_bl(dir: &Path) -> PathBuf {
     let p = dir.join("bl");
-    std::fs::write(&p, "#!/bin/sh\ncase \"$1\" in create) echo bl-gate;; esac\nexit 0\n").unwrap();
+    let log = dir.join("bl.log");
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> {}\ncase \"$1\" in create) echo bl-gate;; esac\nexit 0\n",
+        log.display()
+    );
+    std::fs::write(&p, script).unwrap();
     let mut perm = std::fs::metadata(&p).unwrap().permissions();
     perm.set_mode(0o755);
     std::fs::set_permissions(&p, perm).unwrap();
     p
 }
 
-fn write_config(landing: &Path, target: Option<&str>) {
+fn write_config(landing: &Path, target: Option<&str>, api_base: &str) {
     let dir = landing.join("config/plugins");
     std::fs::create_dir_all(&dir).unwrap();
     let t = target.map(|s| format!(r#","target_branch":"{s}""#)).unwrap_or_default();
-    std::fs::write(dir.join(format!("{NAME}.json")), format!(r#"{{"repo":"o/n","api_base":"http://127.0.0.1:1"{t}}}"#)).unwrap();
+    std::fs::write(dir.join(format!("{NAME}.json")), format!(r#"{{"repo":"o/n","api_base":"{api_base}"{t}}}"#)).unwrap();
 }
 
-fn write_token(state: &Path) {
+fn write_token(state: &Path, api_base: &str) {
     let dir = state.join(format!("balls/plugins/{NAME}/auth"));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("token.json"), r#"{"api_base":"http://127.0.0.1:1","token":"t"}"#).unwrap();
+    std::fs::write(dir.join("token.json"), format!(r#"{{"api_base":"{api_base}","token":"t"}}"#)).unwrap();
 }
+
+/// The dead-end loopback base for paths that must never reach the network.
+const NO_API: &str = "http://127.0.0.1:1";
 
 fn gate_file(state: &Path, invocation: &str, parent: &str) -> PathBuf {
     state
@@ -84,8 +94,13 @@ fn gate_file(state: &Path, invocation: &str, parent: &str) -> PathBuf {
 
 /// A hook invocation pre-wired with config + token + fake bl + env.
 fn hook(tmp: &Path, op: &str, phase: &str, wire: &str) -> Command {
-    write_config(&tmp.join("landing"), Some("main"));
-    write_token(&tmp.join("state"));
+    hook_at(tmp, op, phase, wire, NO_API)
+}
+
+/// Like [`hook`], with the GitHub API base pointed at `api_base`.
+fn hook_at(tmp: &Path, op: &str, phase: &str, wire: &str, api_base: &str) -> Command {
+    write_config(&tmp.join("landing"), Some("main"), api_base);
+    write_token(&tmp.join("state"), api_base);
     let mut c = bin();
     c.args([op, phase])
         .env("XDG_STATE_HOME", tmp.join("state"))
@@ -172,6 +187,64 @@ fn sync_post_with_no_pending_gates_is_a_noop() {
 }
 
 #[test]
+fn sync_post_closes_the_gate_once_the_pr_merges() {
+    // The headline forge lifecycle, end-to-end through the BUILT BINARY:
+    // a remembered gate child + a merged PR for `work/<parent>` must shell
+    // `bl close <gate>` (stamped with the wire actor) and forget the link.
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("proj");
+    repo(&proj);
+    let inv = proj.to_string_lossy().into_owned();
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+        .with_status(200)
+        .with_body(r#"[{"number":6,"html_url":"https://gh/pr/6","merged":true}]"#)
+        .create();
+    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
+    std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
+    std::fs::write(&gate, "bl-gate").unwrap();
+
+    let wire = format!(
+        r#"{{"actor":"alice","binding":{{"invocation_path":"{inv}","landing":"{}/landing"}}}}"#,
+        tmp.path().to_string_lossy()
+    );
+    hook_at(tmp.path(), "sync", "post", &wire, &server.url()).assert().success();
+
+    let log = std::fs::read_to_string(tmp.path().join("bl.log")).unwrap();
+    assert!(log.contains("close bl-gate --as alice"), "bl calls: {log}");
+    assert!(!gate.exists(), "merged gate link should be forgotten");
+}
+
+#[test]
+fn sync_post_keeps_the_gate_while_the_pr_is_open() {
+    // Same wiring, PR not merged: no `bl` verb fires and the link survives,
+    // so the parent's `bl close` stays blocked until the merge.
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("proj");
+    repo(&proj);
+    let inv = proj.to_string_lossy().into_owned();
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+        .with_status(200)
+        .with_body(r#"[{"number":6,"html_url":"https://gh/pr/6","merged":false}]"#)
+        .create();
+    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
+    std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
+    std::fs::write(&gate, "bl-gate").unwrap();
+
+    let wire = format!(
+        r#"{{"actor":"alice","binding":{{"invocation_path":"{inv}","landing":"{}/landing"}}}}"#,
+        tmp.path().to_string_lossy()
+    );
+    hook_at(tmp.path(), "sync", "post", &wire, &server.url()).assert().success();
+
+    assert!(!tmp.path().join("bl.log").exists(), "no verb should fire for an open PR");
+    assert_eq!(std::fs::read_to_string(&gate).unwrap(), "bl-gate");
+}
+
+#[test]
 fn missing_config_or_token_errors() {
     let tmp = tempfile::tempdir().unwrap();
     let wire = format!(
@@ -182,7 +255,7 @@ fn missing_config_or_token_errors() {
     bin().args(["claim", "post"]).env("XDG_STATE_HOME", tmp.path().join("state")).env("BALLS_PLUGIN_NAME", NAME)
         .write_stdin(wire.clone()).assert().failure();
     // config present, token absent (fresh state dir)
-    write_config(&tmp.path().join("landing"), Some("main"));
+    write_config(&tmp.path().join("landing"), Some("main"), NO_API);
     bin().args(["claim", "post"]).env("XDG_STATE_HOME", tmp.path().join("state2")).env("BALLS_PLUGIN_NAME", NAME)
         .write_stdin(wire).assert().failure();
 }
@@ -190,8 +263,8 @@ fn missing_config_or_token_errors() {
 #[test]
 fn close_without_a_target_branch_errors() {
     let tmp = tempfile::tempdir().unwrap();
-    write_config(&tmp.path().join("landing"), None); // no target_branch
-    write_token(&tmp.path().join("state"));
+    write_config(&tmp.path().join("landing"), None, NO_API); // no target_branch
+    write_token(&tmp.path().join("state"), NO_API);
     let wire = format!(
         r#"{{"binding":{{"invocation_path":"/x","landing":"{}/landing"}},"metadata":{{"bl-id":["bl-1"]}},"current_state":{{"title":"t"}}}}"#,
         tmp.path().to_string_lossy()
