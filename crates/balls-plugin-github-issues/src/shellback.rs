@@ -70,17 +70,26 @@ impl Bl {
         }
     }
 
-    /// `bl create "title" --body B [-t tag…]` → the new ball id (parsed from
+    /// `bl create --body B [-t tag…] -- "title"` → the new ball id (parsed from
     /// stdout). Tags become balls tags (GitHub labels mirror in as tags).
+    ///
+    /// The title is GitHub-sourced — UNTRUSTED — and rides a positional, so it
+    /// goes behind the `--` end-of-options separator: a hostile `-`-leading
+    /// title (`--as …`) stays a title instead of hijacking a flag (the bl-d31f
+    /// core seam, mirroring core's own arg-injection guard 938e75a0). `body`
+    /// and the labels are untrusted too, but they ride as FLAG VALUES — the
+    /// parser consumes the token after `--body`/`-t` unconditionally, so they
+    /// are never read as flags and need no guard.
     pub fn create(&self, title: &str, body: &str, tags: &[String]) -> io::Result<String> {
-        let mut args: Vec<String> =
-            vec!["create".into(), title.into(), "--body".into(), body.into()];
+        let mut args: Vec<String> = vec!["create".into(), "--body".into(), body.into()];
         for t in tags {
             args.push("-t".into());
             args.push(t.clone());
         }
         args.push("--as".into());
         args.push(self.actor.clone());
+        args.push("--".into());
+        args.push(title.into());
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let stdout = self.run(&refs)?;
         extract_id(&stdout)
@@ -89,12 +98,17 @@ impl Bl {
 
     /// `bl update <id> -t <tag>` — add a tag (the only inward field edit the
     /// verb surface allows besides priority/extras). Used for the `deferred`
-    /// external-delete policy.
+    /// external-delete policy. The `id` positional needs no `--` guard: every id
+    /// reaching here is [`extract_id`]-minted (strict `bl-<hex>`) or
+    /// marker-parsed (`crate::marker::strip` requires the `bl-` prefix), so the
+    /// token always leads with `b`, never `-` — it cannot read as a flag. `tag`
+    /// is a flag value (see [`Bl::create`]).
     pub fn add_tag(&self, id: &str, tag: &str) -> io::Result<()> {
         self.run(&["update", id, "-t", tag, "--as", &self.actor]).map(drop)
     }
 
-    /// `bl close <id>` — the inward close mirror.
+    /// `bl close <id>` — the inward close mirror. As with [`Bl::add_tag`], the
+    /// id is `bl-`-prefixed by both producing grammars, never `-`-leading.
     pub fn close(&self, id: &str) -> io::Result<()> {
         self.run(&["close", id, "--as", &self.actor]).map(drop)
     }
@@ -165,8 +179,21 @@ mod tests {
         assert_eq!(id, "bl-9f9f");
 
         let log = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
-        assert!(log.contains("create Title --body body -t bug"), "argv: {log}");
+        // The untrusted title rides behind `--` (end-of-options), after the flags.
+        assert!(log.contains("create --body body -t bug --as tester -- Title"), "argv: {log}");
         assert!(log.contains("guard=1"), "guard not set: {log}");
+    }
+
+    #[test]
+    fn a_hostile_dash_leading_title_stays_a_positional() {
+        // A GitHub-sourced title like `--as evil` must land AFTER the `--`
+        // separator, where bl reads it as a title, never as a flag.
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bl(dir.path(), 0, "create bl-9f9f\\n");
+        let bl = Bl::new(bin.into(), dir.path().to_path_buf(), "tester".into());
+        bl.create("--as evil", "b", &[]).unwrap();
+        let log = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
+        assert!(log.contains("--as tester -- --as evil"), "argv: {log}");
     }
 
     #[test]

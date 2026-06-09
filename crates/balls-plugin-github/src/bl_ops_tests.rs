@@ -20,8 +20,10 @@ fn create_gate_parses_id_and_passes_the_right_args() {
 
     assert_eq!(runner.create_gate("bl-p", "Do it").unwrap(), "bl-newid");
     let args = std::fs::read_to_string(dir.path().join("args.txt")).unwrap();
-    assert!(args.contains("create Forge approval gate: Do it"));
-    assert!(args.contains("--parent bl-p --blocks close -t forge-gate --as alice"));
+    assert!(args.contains("create --parent bl-p --blocks close -t forge-gate --as alice"));
+    // The PR-sourced title rides behind `--` (end-of-options): a hostile
+    // `-`-leading title can never hijack a flag.
+    assert!(args.contains("-- Forge approval gate: Do it"), "args: {args}");
 }
 
 #[test]

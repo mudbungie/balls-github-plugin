@@ -104,7 +104,7 @@ fn autocreate_imports_open_unmarked_issue() {
     f.run(&f.cfg(OnExternalDelete::Deferred, CloseMirror::Authoritative, None), &mut base).unwrap();
     list.assert();
     stamp.assert();
-    assert!(f.calls().contains("create External --body rep"));
+    assert!(f.calls().contains("create --body rep --as tester -- External"), "{}", f.calls());
     let s = base.get(NEW_ID).unwrap();
     assert_eq!(s.number, 5);
     assert_eq!(s.title, "External");

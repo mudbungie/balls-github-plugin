@@ -69,11 +69,17 @@ impl Bl {
 
     /// `bl create` the approval gate child of `parent` (a `--blocks close`
     /// close-blocker, tagged `forge-gate`), returning the id it mints on stdout.
+    ///
+    /// `title` is PR-sourced (untrusted) and rides a positional, so it goes
+    /// behind the `--` end-of-options separator (the bl-d31f core seam). The
+    /// `Forge approval gate: ` prefix already keeps the token from leading with
+    /// `-`, but the guard makes the safety structural rather than an accident
+    /// of formatting.
     pub fn create_gate(&self, parent: &str, title: &str) -> Result<String> {
         let subject = format!("Forge approval gate: {title}");
         let out = self.run(&[
-            "create", &subject, "--parent", parent, "--blocks", "close", "-t", "forge-gate", "--as",
-            &self.actor,
+            "create", "--parent", parent, "--blocks", "close", "-t", "forge-gate", "--as",
+            &self.actor, "--", &subject,
         ])?;
         parse_id(&out)
             .ok_or_else(|| PluginError::Other(format!("bl create minted no id (stdout: {out:?})")))
