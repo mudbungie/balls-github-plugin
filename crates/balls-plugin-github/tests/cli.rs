@@ -71,7 +71,7 @@ fn write_config(landing: &Path, target: Option<&str>) {
 fn write_token(state: &Path) {
     let dir = state.join(format!("balls/plugins/{NAME}/auth"));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("token.json"), r#"{"token":"t"}"#).unwrap();
+    std::fs::write(dir.join("token.json"), r#"{"api_base":"http://127.0.0.1:1","token":"t"}"#).unwrap();
 }
 
 fn gate_file(state: &Path, invocation: &str, parent: &str) -> PathBuf {

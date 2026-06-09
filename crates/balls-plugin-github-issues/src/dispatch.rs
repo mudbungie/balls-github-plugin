@@ -82,7 +82,7 @@ fn auth_setup(stdin: &mut impl Read, api_base: &str, env: &Env) -> Result<()> {
     let client = GithubClient::new(api_base, token, USER_AGENT);
     let login = client.current_user()?;
     let dir = territory_for_cwd(env)?;
-    auth::save_token(&dir, token)?;
+    auth::save_token(&dir, api_base, token)?;
     eprintln!("github-issues: token stored for {login}");
     Ok(())
 }
@@ -90,7 +90,7 @@ fn auth_setup(stdin: &mut impl Read, api_base: &str, env: &Env) -> Result<()> {
 /// `auth-check`: validate the stored token; exit code is the answer.
 fn auth_check(api_base: &str, env: &Env) -> Result<()> {
     let dir = territory_for_cwd(env)?;
-    let token = auth::load_token(&dir)?;
+    let token = auth::load_token(&dir, api_base)?;
     GithubClient::new(api_base, &token, USER_AGENT).current_user()?;
     Ok(())
 }
@@ -107,7 +107,7 @@ fn adopt_cmd(legacy_dir: &str, config: &str, env: &Env) -> Result<()> {
     let (owner, name) = cfg
         .owner_name()
         .ok_or_else(|| PluginError::Config("repo is not owner/name".into()))?;
-    let token = auth::load_token(&territory_for_cwd(env)?)?;
+    let token = auth::load_token(&territory_for_cwd(env)?, cfg.api_base())?;
     let client = GithubClient::new(cfg.api_base(), &token, USER_AGENT);
     let summary = crate::adopt::adopt(Path::new(legacy_dir), &client, owner, name)?;
     eprintln!(
@@ -146,7 +146,7 @@ fn hook(op: &str, phase: &str, stdin: &mut impl Read, env: &Env) -> Result<()> {
         .owner_name()
         .ok_or_else(|| PluginError::Config("repo is not owner/name".into()))?;
     let territory = env.xdg.territory(&payload.binding.invocation_path);
-    let token = auth::load_token(&territory)?;
+    let token = auth::load_token(&territory, cfg.api_base())?;
     let client = GithubClient::new(cfg.api_base(), &token, USER_AGENT);
     let mut base = Base::load(&territory)?;
 
