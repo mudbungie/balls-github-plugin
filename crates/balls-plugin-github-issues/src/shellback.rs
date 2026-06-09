@@ -115,17 +115,14 @@ impl Bl {
 }
 
 /// Scan `bl` stdout for a `bl-<hex>` id, returning the last one (create prints a
-/// confirmation line carrying the new id; core log lines go to stderr). 4–32 hex
-/// spans the fixed greenfield id width (§16 — the id scheme is fixed, no config).
+/// confirmation line carrying the new id; core log lines go to stderr). The id
+/// grammar is [`crate::marker::is_id`] — the one minted-shape gate shared with
+/// the title-marker parse (§16 — the id scheme is fixed, no config).
 #[must_use]
 pub fn extract_id(stdout: &str) -> Option<String> {
     stdout
         .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-        .rfind(|tok| {
-            tok.strip_prefix("bl-").is_some_and(|h| {
-                (4..=32).contains(&h.len()) && h.chars().all(|c| c.is_ascii_hexdigit())
-            })
-        })
+        .rfind(|tok| crate::marker::is_id(tok))
         .map(str::to_string)
 }
 
