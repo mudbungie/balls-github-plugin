@@ -198,7 +198,7 @@ fn acting_sync_slot_runs_the_pull() {
 }
 
 #[test]
-fn adopt_seeds_the_base_from_a_legacy_store() {
+fn adopt_stamps_the_marker_on_a_legacy_issue() {
     let h = Harness::new();
     let cwd = h.dir.path(); // the cwd keys the territory, like auth-setup
     let legacy = cwd.join("legacy");
@@ -208,19 +208,36 @@ fn adopt_seeds_the_base_from_a_legacy_store() {
         r#"{"id":"bl-1a2b","status":"open","external":{"github-issues":{"issue":{"number":7}}}}"#,
     )
     .unwrap();
+    let mut s = mockito::Server::new();
+    s.mock("GET", "/repos/o/n/issues/7")
+        .with_status(200)
+        .with_body(r#"{"number":7,"title":"Old","state":"open"}"#)
+        .create();
+    s.mock("PATCH", "/repos/o/n/issues/7")
+        .with_status(200)
+        .with_body(r#"{"number":7,"title":"Old [bl-1a2b]","state":"open"}"#)
+        .create();
+    // repo + api_base come from the committed config; the token from territory(cwd).
+    let landing = h.write_config(&s.url());
+    let config = config_path(landing.to_str().unwrap());
+    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), "tok").unwrap();
 
     let env = h.env(cwd, false, "x".into());
-    let (code, _) = run_str(&["adopt", legacy.to_str().unwrap()], "", &env);
+    let args = ["adopt", legacy.to_str().unwrap(), config.to_str().unwrap()];
+    let (code, _) = run_str(&args, "", &env);
     assert_eq!(code, 0);
-    let base = Base::load(&h.territory(cwd.to_str().unwrap())).unwrap();
-    assert_eq!(base.get("bl-1a2b").unwrap().number, 7);
 }
 
 #[test]
 fn adopt_errors_on_a_missing_legacy_dir() {
     let h = Harness::new();
     let cwd = h.dir.path();
-    let (code, _) = run_str(&["adopt", "/no/such/dir"], "", &h.env(cwd, false, "x".into()));
+    let landing = h.write_config("https://api.github.com");
+    let config = config_path(landing.to_str().unwrap());
+    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), "tok").unwrap();
+    let env = h.env(cwd, false, "x".into());
+    let args = ["adopt", "/no/such/dir", config.to_str().unwrap()];
+    let (code, _) = run_str(&args, "", &env);
     assert_eq!(code, 1);
 }
 

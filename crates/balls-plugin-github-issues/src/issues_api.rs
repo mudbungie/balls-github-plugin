@@ -91,6 +91,15 @@ pub fn patch(
     Ok(resp.json()?)
 }
 
+/// `GET …/issues/{number}` — fetch one issue's current shape. The §16 adoption
+/// reads the live title here so it can append the `[bl-xxxx]` marker
+/// idempotently (`crate::marker::append` needs the bare title to re-stamp).
+pub fn get_issue(client: &GithubClient, owner: &str, name: &str, number: u64) -> Result<GhIssue> {
+    let url = format!("{}/{}", issues_url(client, owner, name), number);
+    let resp = GithubClient::check(client.auth(client.http().get(&url)).send()?)?;
+    Ok(resp.json()?)
+}
+
 /// `GET …/issues?state=all` walked to completion (per_page=100, following each
 /// `Link rel="next"`). The whole set — load-bearing for the delete-sweep: a
 /// truncated listing would flag off-page mirrored tasks as externally deleted
@@ -190,6 +199,27 @@ mod tests {
         s.mock("PATCH", "/repos/o/n/issues/9").with_status(404).with_body("gone").create();
         let c = GithubClient::new(&s.url(), "t", UA);
         assert!(patch(&c, "o", "n", 9, &serde_json::json!({"state":"open"})).is_err());
+    }
+
+    #[test]
+    fn get_issue_round_trip() {
+        let mut s = mockito::Server::new();
+        s.mock("GET", "/repos/o/n/issues/9")
+            .with_status(200)
+            .with_body(r#"{"number":9,"title":"Legacy","state":"open"}"#)
+            .create();
+        let c = GithubClient::new(&s.url(), "t", UA);
+        let issue = get_issue(&c, "o", "n", 9).unwrap();
+        assert_eq!(issue.title, "Legacy");
+        assert_eq!(issue.number, 9);
+    }
+
+    #[test]
+    fn get_issue_propagates_api_error() {
+        let mut s = mockito::Server::new();
+        s.mock("GET", "/repos/o/n/issues/9").with_status(404).with_body("gone").create();
+        let c = GithubClient::new(&s.url(), "t", UA);
+        assert!(get_issue(&c, "o", "n", 9).is_err());
     }
 
     #[test]

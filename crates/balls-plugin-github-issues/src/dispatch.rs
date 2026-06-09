@@ -63,10 +63,10 @@ fn dispatch(args: &[String], stdin: &mut impl Read, out: &mut impl Write, env: &
         }
         ["auth-setup"] => auth_setup(stdin, &env.default_api_base, env),
         ["auth-check"] => auth_check(&env.default_api_base, env),
-        ["adopt", legacy_dir] => adopt_cmd(legacy_dir, env),
+        ["adopt", legacy_dir, config] => adopt_cmd(legacy_dir, config, env),
         [op, phase] => hook(op, phase, stdin, env),
         _ => Err(PluginError::Other(
-            "usage: github-issues protocol | auth-setup | auth-check | adopt <legacy-tasks-dir> | <op> <phase>".into(),
+            "usage: github-issues protocol | auth-setup | auth-check | adopt <legacy-tasks-dir> <config-json> | <op> <phase>".into(),
         )),
     }
 }
@@ -95,16 +95,24 @@ fn auth_check(api_base: &str, env: &Env) -> Result<()> {
     Ok(())
 }
 
-/// `adopt <legacy-tasks-dir>`: the one-time §16 cutover step (bl-2a81). Seed the
-/// reconciliation base from a legacy task store's `external.github-issues.issue.
-/// number` blobs so the first greenfield `sync` re-adopts existing issues with
-/// zero dups. Offline; territory keys on the cwd, like the auth subcommands.
-fn adopt_cmd(legacy_dir: &str, env: &Env) -> Result<()> {
-    let territory = territory_for_cwd(env)?;
-    let summary = crate::adopt::adopt(Path::new(legacy_dir), &territory)?;
+/// `adopt <legacy-tasks-dir> <config-json>`: the one-time §16 cutover step
+/// (bl-2a81, reworked bl-0ef9). Stamp the `[bl-xxxx]` marker onto each legacy
+/// issue's title from a legacy task store's `external.github-issues.issue.number`
+/// blobs, so the first greenfield `sync` re-adopts via the marker with zero
+/// dups. ONLINE: the repo + api_base come from the committed config (the single
+/// source of truth, GHE-correct), the token from territory keyed on the cwd —
+/// like `auth-check`.
+fn adopt_cmd(legacy_dir: &str, config: &str, env: &Env) -> Result<()> {
+    let cfg = PluginConfig::load(Path::new(config))?;
+    let (owner, name) = cfg
+        .owner_name()
+        .ok_or_else(|| PluginError::Config("repo is not owner/name".into()))?;
+    let token = auth::load_token(&territory_for_cwd(env)?)?;
+    let client = GithubClient::new(cfg.api_base(), &token, USER_AGENT);
+    let summary = crate::adopt::adopt(Path::new(legacy_dir), &client, owner, name)?;
     eprintln!(
-        "github-issues: adopted {} legacy issue link(s); skipped {}",
-        summary.seeded, summary.skipped
+        "github-issues: stamped {} legacy issue marker(s); skipped {}",
+        summary.stamped, summary.skipped
     );
     Ok(())
 }
