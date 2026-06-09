@@ -1,9 +1,11 @@
 [package]
 name = "balls-plugin-github"
 version = "0.1.0"
-edition = "2021"
 description = "GitHub forge plugin for balls: the §11 forge delivery variant (gate child + PR push) over the §6/§7 subprocess protocol"
-license = "MIT"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "balls-plugin-github"

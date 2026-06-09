@@ -59,11 +59,17 @@ make clean
 ```
 
 `make check` is the gate. The pre-commit hook (`scripts/install-hooks.sh`)
-runs it before every commit. CI runs the same gate.
+runs it before every commit, and CI (`.github/workflows/ci.yml`) runs the
+same gate on every push and pull request.
 
 The 300-line-per-file cap and 100% line coverage are non-negotiable
 balls conventions (`balls/AGENTS.md`); the workspace-aware versions
 of those scripts live in `scripts/`.
+
+These plugins are installed **from source** with `make install` (binaries
+land beside `bl` in `~/.local/bin/`); they are not published to crates.io,
+so the repo carries no release-plz automation. `[workspace.package]` pins
+the MSRV (`rust-version`) and shared metadata for the day that changes.
 
 ## Per-plugin docs
 

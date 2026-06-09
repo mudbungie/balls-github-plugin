@@ -1,9 +1,11 @@
 [package]
 name = "balls-github-shared"
 version = "0.1.0"
-edition = "2021"
 description = "Shared library for balls GitHub plugins (auth, HTTP, config base)"
-license = "MIT"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "balls_github_shared"

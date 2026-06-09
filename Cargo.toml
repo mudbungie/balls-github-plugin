@@ -6,6 +6,16 @@ members = [
     "crates/balls-plugin-github-issues",
 ]
 
+# Metadata shared by every member crate (inherited via `<field>.workspace =
+# true`). `rust-version` is the MSRV floor — the crates use `Option::is_none_or`
+# (stable 1.82); 1.83 matches the balls core repo. Install is from source
+# (`make install`); these plugins are not published to crates.io (no release-plz).
+[workspace.package]
+edition = "2021"
+rust-version = "1.83"
+license = "MIT"
+repository = "https://github.com/mudbungie/balls-github-plugin"
+
 # Shared dep versions — every crate in the workspace pulls from here via
 # `dep.workspace = true`. Keeps the two binaries and the `balls-github-shared`
 # crate they both build on one resolution.

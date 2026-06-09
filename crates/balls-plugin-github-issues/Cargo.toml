@@ -1,9 +1,11 @@
 [package]
 name = "balls-plugin-github-issues"
 version = "0.1.0"
-edition = "2021"
 description = "GitHub Issues plugin for balls (bidirectional task mirror)"
-license = "MIT"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "balls-plugin-github-issues"
