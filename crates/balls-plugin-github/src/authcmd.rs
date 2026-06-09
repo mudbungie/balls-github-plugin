@@ -21,14 +21,14 @@ fn auth_dir(env: &Env) -> std::path::PathBuf {
 /// rejected before it is written.
 pub fn setup(env: &Env, api_base: &str, token: &str, out: &mut dyn Write) -> Result<()> {
     let login = GithubClient::new(api_base, token, USER_AGENT).current_user()?;
-    auth::save_token(&auth_dir(env), token)?;
+    auth::save_token(&auth_dir(env), api_base, token)?;
     writeln!(out, "authenticated as {login}; token stored")?;
     Ok(())
 }
 
 /// Verify the stored token against `api_base`.
 pub fn check(env: &Env, api_base: &str, out: &mut dyn Write) -> Result<()> {
-    let token = auth::load_token(&auth_dir(env))?;
+    let token = auth::load_token(&auth_dir(env), api_base)?;
     let login = GithubClient::new(api_base, &token, USER_AGENT).current_user()?;
     writeln!(out, "ok: authenticated as {login}")?;
     Ok(())

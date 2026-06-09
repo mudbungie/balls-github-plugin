@@ -150,7 +150,7 @@ fn acting_push_slot_loads_config_and_calls_github() {
     let invocation = cwd.join("proj");
     std::fs::create_dir_all(&invocation).unwrap();
     // store the token in territory(invocation)
-    balls_github_shared::auth::save_token(&h.territory(invocation.to_str().unwrap()), "tok").unwrap();
+    balls_github_shared::auth::save_token(&h.territory(invocation.to_str().unwrap()), &s.url(), "tok").unwrap();
     // the store checkout push reads the ball's title/body from
     let store = cwd.join("store");
     std::fs::create_dir_all(store.join("tasks")).unwrap();
@@ -183,7 +183,7 @@ fn acting_sync_slot_runs_the_pull() {
     let landing = h.write_config(&s.url());
     let invocation = cwd.join("proj");
     std::fs::create_dir_all(invocation.join("store").join("tasks")).unwrap();
-    balls_github_shared::auth::save_token(&h.territory(invocation.to_str().unwrap()), "tok").unwrap();
+    balls_github_shared::auth::save_token(&h.territory(invocation.to_str().unwrap()), &s.url(), "tok").unwrap();
 
     let env = h.env(cwd, false, "x".into());
     let payload = format!(
@@ -220,7 +220,7 @@ fn adopt_stamps_the_marker_on_a_legacy_issue() {
     // repo + api_base come from the committed config; the token from territory(cwd).
     let landing = h.write_config(&s.url());
     let config = config_path(landing.to_str().unwrap());
-    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), "tok").unwrap();
+    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), &s.url(), "tok").unwrap();
 
     let env = h.env(cwd, false, "x".into());
     let args = ["adopt", legacy.to_str().unwrap(), config.to_str().unwrap()];
@@ -234,7 +234,7 @@ fn adopt_errors_on_a_missing_legacy_dir() {
     let cwd = h.dir.path();
     let landing = h.write_config("https://api.github.com");
     let config = config_path(landing.to_str().unwrap());
-    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), "tok").unwrap();
+    balls_github_shared::auth::save_token(&h.territory(cwd.to_str().unwrap()), "https://api.github.com", "tok").unwrap();
     let env = h.env(cwd, false, "x".into());
     let args = ["adopt", "/no/such/dir", config.to_str().unwrap()];
     let (code, _) = run_str(&args, "", &env);

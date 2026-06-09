@@ -41,7 +41,7 @@ fn hook(op: &str, phase: &str, env: &Env, stdin: &str, out: &mut dyn Write) -> R
     let w = Wire::parse(stdin).map_err(|e| PluginError::Other(format!("bad §7 wire: {e}")))?;
     let config = PluginConfig::load(&config_path(&w.binding.landing, &env.plugin_name))?;
     let auth_dir = Territory::new(&env.state_home, &env.plugin_name, "").auth_dir();
-    let token = balls_github_shared::auth::load_token(&auth_dir)?;
+    let token = balls_github_shared::auth::load_token(&auth_dir, config.api_base())?;
     let push = pr_api::push_url(config.api_base(), config.repo(), &token);
     let invocation = Path::new(&w.binding.invocation_path);
     let project = Project::new(
