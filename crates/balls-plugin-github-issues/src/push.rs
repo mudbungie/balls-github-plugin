@@ -1,6 +1,6 @@
 //! Push (balls → GitHub), the `*.post` direction (bl-613d).
 //!
-//! Wired on `create`/`update`/`close`/`drop` `post`. The sealed `bl-id` comes
+//! Wired on `create`/`update`/`close` `post`. The sealed `bl-id` comes
 //! from the post `metadata`; the ball's title and body are read from the STORE
 //! checkout (`crate::store`) — the SAME source the pull side reads, so the two
 //! directions never disagree on the body (bl-68db). The old code took the body
@@ -50,7 +50,7 @@ pub fn push(
         .id()
         .ok_or_else(|| PluginError::Other("post payload carries no bl-id".into()))?;
     match payload.op.as_str() {
-        "close" | "drop" => close_issue(client, owner, name, id, base, territory),
+        "close" => close_issue(client, owner, name, id, base, territory),
         "create" | "update" => upsert(client, owner, name, id, base, territory, store_dir),
         _ => Ok(()),
     }

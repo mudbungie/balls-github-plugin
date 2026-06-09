@@ -38,9 +38,9 @@ landing into forge delivery, set `config/plugins.toml`'s `[hooks]` to:
 "claim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then gate child
 "close.pre"  = ["balls-plugin-github"]                            # push + PR, NOT a local squash
 "close.post" = ["bl-delivery", "tracker"]                         # bl-delivery still tears the worktree down
-"sync.post"  = ["balls-plugin-github"]                            # close the gate child on merge
-"drop.post"  = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown
-# claim.pre / unclaim.* / prime.post stay on bl-delivery (the worktree lifecycle)
+"sync.post"  = ["balls-plugin-github"]                              # close the gate child on merge
+"unclaim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown (abandon = unclaim, then close)
+# prime.post stays on bl-delivery (the worktree lifecycle)
 ```
 
 `bl install` resolves each name to this box's binary via the local
@@ -96,18 +96,19 @@ no ambient credential helper is needed.
 ## Protocol surface
 
 `balls-plugin-github protocol` self-describes as
-`{"protocol":[1],"ops":["claim","close","drop","sync"]}`. The hooks:
+`{"protocol":[1],"ops":["claim","close","unclaim","sync"]}`. The hooks:
 
 | Hook | Behaviour |
 |---|---|
 | `claim post` | `bl create` the approval gate child (`--parent <id> --blocks close -t forge-gate`), recording the `parent → gate` link in the plugin's territory. Idempotent. |
 | `close pre` | Capture pending `work/<id>` work, then **push** it + open/update the PR (`"<title> [<id>]"`, base = per-task → config). If `work/<id>` has no changes (the empty deliverable), instead **close the gate child** so the close proceeds. Core's close-blocker guard (§10) keeps the close blocked while the PR is unmerged. Prints the PR URL (a §6 human hint). |
 | `sync post` | For each remembered gate, poll its `work/<parent>` PR; when merged, `bl close` the gate child and forget the link → the parent's next `bl close` unblocks. |
-| `drop post` | Close the PR, delete the remote `work/<id>` branch, and `bl drop` the orphaned gate child. |
+| `unclaim post` | Close the PR and delete the remote `work/<id>` branch (abandonment is `bl unclaim` then `bl close`, §15 bl-65e0). The gate child **stays** — it is the still-open parent's §10 close-blocker; the empty-deliverable `close pre`, a re-claim's new PR, or an explicit approval `bl close` resolves it. |
 
-**Rollback (§14):** rollback of `claim post` drops the just-opened gate
+**Rollback (§14):** rollback of `claim post` closes the just-opened gate
 child; rollback of `close pre` is a **no-op** — a pushed branch + open PR
-is the correct in-review state, never undone (abandon is `bl drop`).
+is the correct in-review state, never undone (abandon is `bl unclaim`
+then `bl close`).
 
 The plugin never `bl close`s the *parent* — only the gate child. The
 parent is closed by whoever runs `bl close` after the gate clears.

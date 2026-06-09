@@ -69,9 +69,6 @@ impl Forge for Project {
     fn close_gate(&self, gate: &str) -> Result<()> {
         self.bl.close(gate)
     }
-    fn drop_gate(&self, gate: &str) -> Result<()> {
-        self.bl.drop(gate)
-    }
     fn capture(&self, id: &str, title: &str) -> Result<()> {
         self.git.capture(id, &subject(title, id))
     }

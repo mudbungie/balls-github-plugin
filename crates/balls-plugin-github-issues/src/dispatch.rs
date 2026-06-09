@@ -27,7 +27,7 @@ pub const USER_AGENT: &str = "balls-plugin-github-issues";
 /// The §6 self-description. balls never persists it; install reads it once to
 /// validate the binding.
 pub const PROTOCOL_JSON: &str =
-    r#"{"protocol":1,"ops":["create","update","close","drop","sync"]}"#;
+    r#"{"protocol":1,"ops":["create","update","close","sync"]}"#;
 
 /// Host-resolved process context, gathered once at the edge (no env reads in the
 /// handlers).
@@ -131,7 +131,7 @@ fn hook(op: &str, phase: &str, stdin: &mut impl Read, env: &Env) -> Result<()> {
     // Only the slots this plugin acts in pay the config/auth cost.
     let acts = matches!(
         (op, phase),
-        ("create" | "update" | "close" | "drop" | "sync", "post")
+        ("create" | "update" | "close" | "sync", "post")
     );
     if !acts {
         return Ok(());

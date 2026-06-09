@@ -1,7 +1,7 @@
 //! The `bl` shell-back — the forge plugin's gate-child lifecycle (§6 bounded
 //! shell-back: one level deep, never re-triggering its own op). A plugin has no
 //! return channel (§7), so it manages the gate child by RUNNING `bl` itself:
-//! `create` to open it, `close`/`drop` to resolve it.
+//! `create` to open it, `close` to resolve it (the one terminal verb, §15 bl-65e0).
 //!
 //! The `bl` program path and the `cwd`/`actor` are injected by the edge (the
 //! bl-bfa8 rule: no env reads in the lib), so tests drive a fake `bl` without
@@ -91,11 +91,6 @@ impl Bl {
         Ok(())
     }
 
-    /// `bl drop <id>` — abandon the gate child.
-    pub fn drop(&self, id: &str) -> Result<()> {
-        self.run(&["drop", id, "--as", &self.actor])?;
-        Ok(())
-    }
 }
 
 /// `bl create` prints the minted id alone on stdout (lifecycle logs go to

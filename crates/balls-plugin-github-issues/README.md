@@ -14,7 +14,7 @@ balls dispatches the binary as `balls-plugin-github-issues <op> <phase>` with th
 install to validate the binding. **There is no return channel** (§7): the plugin
 never prints state for balls to merge. Instead:
 
-- **push** (`create`/`update`/`close`/`drop` `post`) calls the GitHub API
+- **push** (`create`/`update`/`close` `post`) calls the GitHub API
   directly from the sealed task state.
 - **pull** (`sync`) drives the public verb surface — it shells `bl create` /
   `bl update` / `bl close` for each inward change (the §6 "plugin shells back").

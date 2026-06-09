@@ -7,8 +7,8 @@ auth/HTTP/config:
 | Crate | What it is |
 |---|---|
 | [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge delivery plugin.** The §11 *forge* variant of the delivery plugin: at `claim` it opens an approval gate child (`--blocks close`); at `close` it pushes `work/<id>` and opens/updates the PR (no local squash); `sync` closes the gate child once the PR merges, unblocking the parent's `bl close`. Speaks the §6/§7 subprocess protocol. Implements `docs/architecture.md` §11 (FORGE) + §9/§10. |
-| [`balls-plugin-github-issues`](crates/balls-plugin-github-issues/) | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back via `sync`/SyncReport. |
-| [`balls-github-shared`](crates/balls-github-shared/) | Library crate. Token I/O, the base `GithubClient` (auth + status mapping + `GET /user`), the shared `RepoConfig` (repo + api_base), and the plugin-protocol types (`Task`, `Link`, `SyncReport`, `SyncUpdate`). |
+| [`balls-plugin-github-issues`](crates/balls-plugin-github-issues/) | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back on `sync` by shelling the public verbs (`bl create`/`update`/`close` — there is no return channel, §7). |
+| [`balls-github-shared`](crates/balls-github-shared/) | Library crate. Token I/O, the base `GithubClient` (auth + status mapping + `GET /user`), the shared `RepoConfig` (repo + api_base), and the shared §7 wire shapes (`Binding`, `Metadata`/`metadata_id`). |
 
 ## Why two binaries, not one
 
@@ -35,8 +35,9 @@ survives a merge into one binary.
 > "one token, less duplication" instinct without paying the
 > projection-overlap, single-policy-knob, and stable-coupled-to-churny
 > costs. If you find yourself wanting to merge them, re-read
-> `SPEC-lifecycle-sync-participants.md` §3 (projection) and §5
-> (Participant contract: one name).
+> `docs/architecture.md` §6 in the balls repo (one plugin = one NAME:
+> the hook schedule, the `bin/<name>` symlink, and the per-name
+> territory, §1, all key on it).
 
 The shared library crate has a load-bearing boundary invariant: it
 has zero references to any per-plugin `external.<name>.*` literal,
