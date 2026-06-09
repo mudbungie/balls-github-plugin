@@ -1,6 +1,6 @@
 //! Pull (GitHub → balls), the `sync` direction (bl-613d).
 //!
-//! Wired on `sync` (cwd = the live store checkout, §8). There is no return
+//! Wired on `sync` (cwd = the live store checkout, §13). There is no return
 //! channel: instead of reporting changes for core to apply, the handler drives
 //! `bl` directly (`crate::shellback`). Per the locked authority model — balls
 //! owns content, GitHub owns only the close transition inward — the inward

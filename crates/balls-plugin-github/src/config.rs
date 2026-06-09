@@ -1,6 +1,7 @@
-//! Forge plugin config, git-tracked at `.balls/plugins/github.json`.
-//! The shared half (`repo`, `api_base`) flattens in from
-//! `balls_github_shared::config_base::RepoConfig`; the forge-only
+//! Forge plugin config, committed on the landing at
+//! `config/plugins/<plugin-name>.json` (the name is `BALLS_PLUGIN_NAME`,
+//! §6 install bundle). The shared half (`repo`, `api_base`) flattens in
+//! from `balls_github_shared::config_base::RepoConfig`; the forge-only
 //! field `target_branch` lives here.
 
 use balls_github_shared::config_base::{load_json, RepoConfig};
@@ -12,9 +13,9 @@ use std::path::Path;
 pub struct PluginConfig {
     #[serde(flatten)]
     pub base: RepoConfig,
-    /// Default PR base. Per-task `target_branch` overrides it. Deferred-mode
-    /// review requires a target somewhere; `None` here and on the task is an
-    /// error at push time, never silently `main`.
+    /// Default PR base. Per-task `target_branch` overrides it. A forge PR
+    /// needs a base somewhere; `None` here and on the task is an error at
+    /// `close.pre`, never silently `main`.
     #[serde(default)]
     pub target_branch: Option<String>,
 }

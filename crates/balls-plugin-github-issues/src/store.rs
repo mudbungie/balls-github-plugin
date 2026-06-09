@@ -1,6 +1,6 @@
 //! Reading the STORE checkout on the pull side (bl-613d).
 //!
-//! During `sync` the plugin's cwd is the live store checkout (§8) — `tasks/` is
+//! During `sync` the plugin's cwd is the live store checkout (§13) — `tasks/` is
 //! right there. The plugin READS it directly (the balls-side title + body for a
 //! three-way merge, and the set of live ids for the delete-sweep) but never
 //! WRITES it: every mutation goes through a shelled `bl` verb (`crate::shellback`)

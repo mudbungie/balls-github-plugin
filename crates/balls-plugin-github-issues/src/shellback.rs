@@ -102,7 +102,7 @@ impl Bl {
 
 /// Scan `bl` stdout for a `bl-<hex>` id, returning the last one (create prints a
 /// confirmation line carrying the new id; core log lines go to stderr). 4–32 hex
-/// matches the `id_length` range without the plugin reading core config.
+/// spans the fixed greenfield id width (§16 — the id scheme is fixed, no config).
 #[must_use]
 pub fn extract_id(stdout: &str) -> Option<String> {
     stdout
