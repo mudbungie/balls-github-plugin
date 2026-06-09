@@ -6,6 +6,7 @@
 //! in the lib" rule — and hands the rest to [`dispatch::run`]. All policy lives
 //! in the handler modules; `main` only adapts the boundary.
 
+mod adopt;
 mod base;
 mod config;
 mod content;

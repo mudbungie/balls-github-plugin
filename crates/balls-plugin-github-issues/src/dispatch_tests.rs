@@ -195,6 +195,33 @@ fn acting_sync_slot_runs_the_pull() {
 }
 
 #[test]
+fn adopt_seeds_the_base_from_a_legacy_store() {
+    let h = Harness::new();
+    let cwd = h.dir.path(); // the cwd keys the territory, like auth-setup
+    let legacy = cwd.join("legacy");
+    std::fs::create_dir_all(&legacy).unwrap();
+    std::fs::write(
+        legacy.join("bl-1a2b.json"),
+        r#"{"id":"bl-1a2b","status":"open","external":{"github-issues":{"issue":{"number":7}}}}"#,
+    )
+    .unwrap();
+
+    let env = h.env(cwd, false, "x".into());
+    let (code, _) = run_str(&["adopt", legacy.to_str().unwrap()], "", &env);
+    assert_eq!(code, 0);
+    let base = Base::load(&h.territory(cwd.to_str().unwrap())).unwrap();
+    assert_eq!(base.get("bl-1a2b").unwrap().number, 7);
+}
+
+#[test]
+fn adopt_errors_on_a_missing_legacy_dir() {
+    let h = Harness::new();
+    let cwd = h.dir.path();
+    let (code, _) = run_str(&["adopt", "/no/such/dir"], "", &h.env(cwd, false, "x".into()));
+    assert_eq!(code, 1);
+}
+
+#[test]
 fn acting_slot_errors_when_config_missing() {
     let h = Harness::new();
     let cwd = h.dir.path();
