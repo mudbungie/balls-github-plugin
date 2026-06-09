@@ -63,9 +63,10 @@ fn dispatch(args: &[String], stdin: &mut impl Read, out: &mut impl Write, env: &
         }
         ["auth-setup"] => auth_setup(stdin, &env.default_api_base, env),
         ["auth-check"] => auth_check(&env.default_api_base, env),
+        ["adopt", legacy_dir] => adopt_cmd(legacy_dir, env),
         [op, phase] => hook(op, phase, stdin, env),
         _ => Err(PluginError::Other(
-            "usage: github-issues protocol | auth-setup | auth-check | <op> <phase>".into(),
+            "usage: github-issues protocol | auth-setup | auth-check | adopt <legacy-tasks-dir> | <op> <phase>".into(),
         )),
     }
 }
@@ -91,6 +92,20 @@ fn auth_check(api_base: &str, env: &Env) -> Result<()> {
     let dir = territory_for_cwd(env)?;
     let token = auth::load_token(&dir)?;
     GithubClient::new(api_base, &token, USER_AGENT).current_user()?;
+    Ok(())
+}
+
+/// `adopt <legacy-tasks-dir>`: the one-time §16 cutover step (bl-2a81). Seed the
+/// reconciliation base from a legacy task store's `external.github-issues.issue.
+/// number` blobs so the first greenfield `sync` re-adopts existing issues with
+/// zero dups. Offline; territory keys on the cwd, like the auth subcommands.
+fn adopt_cmd(legacy_dir: &str, env: &Env) -> Result<()> {
+    let territory = territory_for_cwd(env)?;
+    let summary = crate::adopt::adopt(Path::new(legacy_dir), &territory)?;
+    eprintln!(
+        "github-issues: adopted {} legacy issue link(s); skipped {}",
+        summary.seeded, summary.skipped
+    );
     Ok(())
 }
 
