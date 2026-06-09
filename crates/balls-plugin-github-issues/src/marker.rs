@@ -23,9 +23,12 @@ pub fn append(title: &str, id: &str) -> String {
 }
 
 /// Split a possibly-marked title into `(bare_title, marked_id)`. A trailing
-/// ` [bl-…]` (the marker grammar: a bracketed token starting `bl-`) is removed
-/// from the bare title and its id returned; otherwise the whole string is the
-/// bare title and the id is `None`.
+/// ` [bl-…]` whose token satisfies [`is_id`] is removed from the bare title
+/// and its id returned; otherwise the whole string is the bare title and the
+/// id is `None`. The grammar gate matters: titles come from GitHub, UNTRUSTED,
+/// and the parsed id flows into `tasks/<id>.md` path joins — a crafted marker
+/// like `[bl-../../x]` must die here as plain title text, not become a read
+/// outside the store (the bl-2d6d/938e75a0 traversal shape, bl-8a18).
 #[must_use]
 pub fn strip(title: &str) -> (&str, Option<&str>) {
     let trimmed = title.trim_end();
@@ -36,10 +39,24 @@ pub fn strip(title: &str) -> (&str, Option<&str>) {
         return (trimmed, None);
     }
     let inner = &trimmed[open + 1..trimmed.len() - 1];
-    if !inner.starts_with("bl-") || inner.contains([' ', '[', ']']) {
+    if !is_id(inner) {
         return (trimmed, None);
     }
     (trimmed[..open].trim_end(), Some(inner))
+}
+
+/// Whether `token` has the minted ball-id shape: `bl-` + 4–32 characters from
+/// the core mint alphabet (`0123456789abcdef`, core `src/id.rs` `IdScheme` —
+/// 4 today, 32 is headroom for a longer fixed width). This is the ONE id
+/// grammar for every untrusted parse seam — the GitHub title marker here and
+/// `bl` stdout in `crate::shellback::extract_id` — so no separator (`/`, `.`,
+/// `-`, `_`) ever survives into a downstream path join.
+#[must_use]
+pub fn is_id(token: &str) -> bool {
+    token.strip_prefix("bl-").is_some_and(|hex| {
+        (4..=32).contains(&hex.len())
+            && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 #[cfg(test)]
@@ -58,7 +75,7 @@ mod tests {
 
     #[test]
     fn append_replaces_a_different_marker() {
-        assert_eq!(append("Fix [bl-old0]", "bl-new1"), "Fix [bl-new1]");
+        assert_eq!(append("Fix [bl-01d0]", "bl-2ef1"), "Fix [bl-2ef1]");
     }
 
     #[test]
@@ -87,5 +104,30 @@ mod tests {
     #[test]
     fn strip_tolerates_trailing_space() {
         assert_eq!(strip("Fix [bl-1a2b]  "), ("Fix", Some("bl-1a2b")));
+    }
+
+    #[test]
+    fn strip_rejects_a_hostile_traversal_marker() {
+        // GitHub-controlled title; the "id" must not reach a path join.
+        let title = "Fix the bug [bl-../../x]";
+        assert_eq!(strip(title), (title, None));
+        assert_eq!(strip("Fix [bl-tasks/evil]"), ("Fix [bl-tasks/evil]", None));
+    }
+
+    #[test]
+    fn strip_rejects_a_non_minted_alphabet_or_width() {
+        assert_eq!(strip("Fix [bl-1A2B]"), ("Fix [bl-1A2B]", None)); // uppercase
+        assert_eq!(strip("Fix [bl-xyzw]"), ("Fix [bl-xyzw]", None)); // non-hex
+        assert_eq!(strip("Fix [bl-1a2]"), ("Fix [bl-1a2]", None)); // too short
+        assert_eq!(strip("Fix [bl-]"), ("Fix [bl-]", None)); // empty suffix
+    }
+
+    #[test]
+    fn is_id_accepts_exactly_the_minted_shape() {
+        assert!(is_id("bl-1a2b"));
+        assert!(is_id(&format!("bl-{}", "0".repeat(32)))); // max headroom
+        assert!(!is_id(&format!("bl-{}", "0".repeat(33))));
+        assert!(!is_id("bl-../../x"));
+        assert!(!is_id("xl-1a2b"));
     }
 }
