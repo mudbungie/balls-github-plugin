@@ -100,26 +100,30 @@ verb posts, pull on `sync.post` (after the tracker has imported the store):
 
 Legacy (pre-greenfield) balls kept the task↔issue join inline on the task as
 `external.github-issues.issue.number`. The greenfield join is the `[bl-xxxx]`
-title marker plus the territory base; legacy issues carry no marker, so without
-a hint the first `sync` would auto-create a duplicate for every mirrored issue.
+title marker (the SSOT — the base is only a rebuildable cache); legacy issues
+carry no marker, so without one the first `sync` would auto-create a duplicate
+for every mirrored issue.
 
-`adopt` is the one-time cutover step that seeds the base's number→id fallback
-(`Base::id_for_number`) from a legacy task store, so the first `sync` re-adopts
-each existing issue with **zero dups**. It runs **offline** — it reads the
-legacy JSON only, never GitHub — and keys the territory on the cwd, like the
-auth subcommands, so run it from the project directory:
+`adopt` is the one-time cutover step that **stamps the missing marker**: for
+each legacy task carrying an issue number it appends `[bl-id]` to that GitHub
+issue's title (one PATCH per issue). It runs **online** — repo + `api_base` come
+from the committed config, the token from the territory keyed on the cwd, like
+`auth-check` — so run it from the project directory:
 
 ```sh
 # extract the legacy task JSON (e.g. from the pre-cutover store branch)
 git archive balls-archive .balls/tasks | tar -x -C /tmp/legacy
-balls-plugin-github-issues adopt /tmp/legacy/.balls/tasks
+balls-plugin-github-issues adopt /tmp/legacy/.balls/tasks \
+    "$XDG_STATE_HOME/balls/clones/<clone>/config/config/plugins/github-issues/config.json"
 ```
 
-Per the §16 *migrate-clean-or-delink* rule it seeds only the one fact the legacy
-store proves — the issue number; the agreed title/body/state are left as
-force-refresh sentinels the first `sync` overwrites from GitHub. It is
-idempotent and non-clobbering (an id the base already knows is left untouched),
-so a re-run is safe. Closed and never-mirrored legacy tasks are skipped.
+Because the marker lives on GitHub it is visible to **every** clone: the first
+`sync` (on any machine, whether or not it ran `adopt`) joins each issue via the
+marker — pull priority 1 — and rebuilds its own `base.json` cache. Federation is
+free; there is no per-machine join state to lose. `adopt` is idempotent: an
+issue whose title already carries the correct marker makes no API call, so a
+re-run is safe. Closed (absence = closed, §9) and never-mirrored legacy tasks
+are skipped.
 
 Run order: `bl prime` (brings up XDG/config) → `adopt` → first `bl sync`.
 
