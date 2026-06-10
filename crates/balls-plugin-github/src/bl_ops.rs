@@ -1,7 +1,9 @@
 //! The `bl` shell-back — the forge plugin's gate-child lifecycle (§6 bounded
 //! shell-back: one level deep, never re-triggering its own op). A plugin has no
 //! return channel (§7), so it manages the gate child by RUNNING `bl` itself:
-//! `create` to open it, `close` to resolve it (the one terminal verb, §15 bl-65e0).
+//! `create --subtask-of` to mint it (the bl-788e parent + close-gate sugar),
+//! `update` to stamp the join key, `close` to resolve it (the one retirement,
+//! §10), and `list --json` to derive the open-gate set.
 //!
 //! The `bl` program path and the `cwd`/`actor` are injected by the edge (the
 //! bl-bfa8 rule: no env reads in the lib), so tests drive a fake `bl` without
@@ -67,30 +69,43 @@ impl Bl {
         c
     }
 
-    /// `bl create` the approval gate child of `parent` (a `--blocks close`
-    /// close-blocker, tagged `forge-gate`), returning the id it mints on stdout.
+    /// `bl create --subtask-of <parent>` — mint the review gate child (parent
+    /// pointer + reciprocal close-gate in one word, §10), returning the id it
+    /// prints on stdout.
     ///
-    /// `title` is PR-sourced (untrusted) and rides a positional, so it goes
+    /// `title` is task-sourced (untrusted) and rides a positional, so it goes
     /// behind the `--` end-of-options separator (the bl-d31f core seam). The
-    /// `Forge approval gate: ` prefix already keeps the token from leading with
-    /// `-`, but the guard makes the safety structural rather than an accident
-    /// of formatting.
+    /// `Review gate: ` prefix already keeps the token from leading with `-`,
+    /// but the guard makes the safety structural rather than an accident of
+    /// formatting.
     pub fn create_gate(&self, parent: &str, title: &str) -> Result<String> {
-        let subject = format!("Forge approval gate: {title}");
-        let out = self.run(&[
-            "create", "--parent", parent, "--blocks", "close", "-t", "forge-gate", "--as",
-            &self.actor, "--", &subject,
-        ])?;
+        let subject = format!("Review gate: {title}");
+        let out =
+            self.run(&["create", "--subtask-of", parent, "--as", &self.actor, "--", &subject])?;
         parse_id(&out)
             .ok_or_else(|| PluginError::Other(format!("bl create minted no id (stdout: {out:?})")))
     }
 
-    /// `bl close <id>` — resolve the gate child.
-    pub fn close(&self, id: &str) -> Result<()> {
-        self.run(&["close", id, "--as", &self.actor])?;
+    /// `bl update <id> <key>=<value>` — stamp a preserved extra (§3): the
+    /// plugin-namespaced join key on a freshly minted gate child (`create`
+    /// takes no key=value extras, so the stamp is its own op).
+    pub fn set_extra(&self, id: &str, key: &str, value: &str) -> Result<()> {
+        let kv = format!("{key}={value}");
+        self.run(&["update", id, &kv, "--as", &self.actor])?;
         Ok(())
     }
 
+    /// `bl close <id> -m <note>` — resolve the gate child.
+    pub fn close(&self, id: &str, note: &str) -> Result<()> {
+        self.run(&["close", id, "-m", note, "--as", &self.actor])?;
+        Ok(())
+    }
+
+    /// `bl list --json` — the bedrock projection of every live task, the input
+    /// to the open-gate scan ([`crate::wire::open_gates`]).
+    pub fn list_json(&self) -> Result<String> {
+        self.run(&["list", "--json"])
+    }
 }
 
 /// `bl create` prints the minted id alone on stdout (lifecycle logs go to

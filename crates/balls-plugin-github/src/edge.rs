@@ -6,14 +6,11 @@
 //! and the integration path is covered by the binary tests in `tests/cli.rs`.
 
 use crate::bl_ops::Bl;
-use crate::config::PluginConfig;
 use crate::forge::{self, Ctx};
-use crate::git_ops::{self, Git};
-use crate::pr_api;
 use crate::project::Project;
-use crate::scratch::Territory;
 use crate::wire::{self, Wire};
 use crate::{authcmd, Env};
+use balls_github_shared::config_base::{load_json, RepoConfig};
 use balls_github_shared::error::{PluginError, Result};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -36,35 +33,31 @@ pub fn handle(args: &[String], env: &Env, stdin: &str, out: &mut dyn Write) -> R
     }
 }
 
-/// Run a delivery hook: build the seam, then apply the [`forge`] matrix.
+/// Run a hook: build the seam, then apply the [`forge`] matrix.
 fn hook(op: &str, phase: &str, env: &Env, stdin: &str, out: &mut dyn Write) -> Result<()> {
     let w = Wire::parse(stdin).map_err(|e| PluginError::Other(format!("bad §7 wire: {e}")))?;
-    let config = PluginConfig::load(&config_path(&w.binding.landing, &env.plugin_name))?;
-    let auth_dir = Territory::new(&env.state_home, &env.plugin_name, "").auth_dir();
-    let token = balls_github_shared::auth::load_token(&auth_dir, config.api_base())?;
-    let push = pr_api::push_url(config.api_base(), config.repo(), &token);
-    let invocation = Path::new(&w.binding.invocation_path);
-    let project = Project::new(
-        &config,
-        &token,
-        push,
-        Git::at(invocation),
-        Bl::new(&env.bl_program, invocation, &w.actor),
-        Territory::new(&env.state_home, &env.plugin_name, &w.binding.invocation_path),
-    );
-
-    // `sync` is diffless — it carries no single ball, so it skips id/base.
-    if op == "sync" {
-        forge::dispatch(op, phase, false, &project, &Ctx::default())?;
-        return Ok(());
-    }
-    let id = wire::resolve_id(w.metadata.as_ref(), || git_ops::changed_task_paths(&env.cwd))?;
-    let title = w.current_state.as_ref().map(|s| s.title.clone()).unwrap_or_default();
-    let task_target = w.current_state.as_ref().and_then(|s| s.target_branch.clone());
-    let base = resolve_base(task_target, config.target_branch.clone(), op)?;
-    let ctx = Ctx { id, title, base };
+    let config: RepoConfig = load_json(&config_path(&w.binding.landing, &env.plugin_name))?;
+    config.validate()?;
+    let token = balls_github_shared::auth::load_token(&authcmd::auth_dir(env), config.api_base())?;
+    let bl = Bl::new(&env.bl_program, Path::new(&w.binding.invocation_path), &w.actor);
+    let project = Project::new(&config, &token, env.plugin_name.clone(), bl);
+    let ctx = ctx_of(op, &w, &env.plugin_name)?;
     let line = forge::dispatch(op, phase, w.rolling_back.is_some(), &project, &ctx)?;
     emit(line, out)
+}
+
+/// The per-ball facts off the post wire — or the empty [`Ctx`] for `sync`,
+/// which is diffless (§13: no single ball, no metadata).
+fn ctx_of(op: &str, w: &Wire, key: &str) -> Result<Ctx> {
+    if op == "sync" {
+        return Ok(Ctx::default());
+    }
+    let state = w.previous_state.as_ref();
+    Ok(Ctx {
+        id: wire::sealed_id(w.metadata.as_ref())?,
+        title: state.map(|s| s.title.clone()).unwrap_or_default(),
+        gate_of: state.and_then(|s| s.extra_str(key)).map(str::to_string),
+    })
 }
 
 /// The optional `api_base` positional for the auth subcommands; defaults to
@@ -78,21 +71,8 @@ fn config_path(landing: &str, name: &str) -> PathBuf {
     Path::new(landing).join("config").join("plugins").join(format!("{name}.json"))
 }
 
-/// The PR base: per-task `target_branch` wins, else the config default. `close`
-/// (the only op that opens a PR) REQUIRES one — a forge PR cannot guess a base
-/// (§11); other ops never read it, so an absent base defaults empty.
-fn resolve_base(task_target: Option<String>, config_target: Option<String>, op: &str) -> Result<String> {
-    let base = task_target.or(config_target);
-    if op == "close" {
-        base.ok_or_else(|| {
-            PluginError::Config("no target_branch: set it per-task or in config (a forge PR needs a base)".into())
-        })
-    } else {
-        Ok(base.unwrap_or_default())
-    }
-}
-
-/// Forward the hook's optional stdout line (the PR URL hint, §6).
+/// Forward the hook's optional stdout product (§6: the minted gate child's id,
+/// or sync's resolved-gate lines).
 fn emit(line: Option<String>, out: &mut dyn Write) -> Result<()> {
     if let Some(l) = line {
         writeln!(out, "{l}")?;

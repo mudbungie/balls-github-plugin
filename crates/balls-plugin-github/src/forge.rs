@@ -1,90 +1,80 @@
-//! The forge delivery variant's POLICY — the §6/§7 hook-dispatch matrix.
+//! The forge plugin's POLICY — the §6/§7 hook-dispatch matrix, subtask model.
 //!
-//! This is the FORGE variant of the §11 delivery plugin: it is wired ALONGSIDE
-//! the worktree-owning `bl-delivery` (which still materializes/tears down the
-//! `work/<id>` code worktree), and differs only in the delivery hooks it takes
-//! over — exactly what §11 means by "the two variants differ only in what's
-//! wired into the delivery hooks":
+//! Forge is NOT a delivery variant (§11, bl-7bfe): it never hooks `close.pre`,
+//! and there is no plugin-side submission step. The plugin shrinks to two
+//! moments around an ordinary close-blocker gate child (§10):
 //!
-//! - **`claim.post`** — open an approval **gate child** (a normal close-blocker
-//!   on the parent, §10 — NOT a special mechanism), remembering its id in the
-//!   plugin's own territory (§1/§7 give it no return channel to store the link
-//!   on the ball).
-//! - **`close.pre`** — capture pending worktree work, then EITHER push
-//!   `work/<id>` + open/update the PR (the forge produces the squash on merge,
-//!   so we never squash locally), OR — when there is nothing to review (the §11
-//!   empty deliverable) — auto-resolve the gate by closing it.
-//! - **`sync.post`** — close the gate child of every still-open task whose PR
-//!   has merged, unblocking the parent's next `bl close`.
-//! - **`unclaim.post`** — tear the PR/branch down (abandonment is `unclaim`
-//!   then `close`, §11/§15 bl-65e0 — the `drop` verb is gone). The gate child
-//!   STAYS: the parent is still open and the gate is its §10 close-blocker —
-//!   resolving it here would re-open the gate bypass deleting `drop` closed.
-//!   The gate resolves later: empty `close.pre` auto-resolves it, a re-claim
-//!   reuses it (PR → merge → `sync`), or an approver closes it by hand.
+//! - **`claim.post`** — mint the **review gate child** of the claimed task: one
+//!   `bl create --subtask-of <id>` (the bl-788e parent + close-gate sugar — this
+//!   plugin is its first programmatic consumer), carrying the plugin-namespaced
+//!   preserved key (§3 extras) that joins gate → parent. Minting SKIPS when the
+//!   claimed task is itself one of the plugin's gate children (no
+//!   gates-for-gates) and when a standing open gate for this parent already
+//!   exists (an unclaim-and-reclaim reuses it). The minted id is the hook's
+//!   stdout product (§6).
+//! - **`sync.post`** — for each open gate child (the preserved-key scan over
+//!   `bl list --json`), check the parent's PR by its `work/<parent>` head
+//!   branch; merged ⇒ `bl close` the gate child, unblocking the parent's close.
 //!
-//! **Rollback (§14):** `rollback claim.post` closes the just-opened gate child;
-//! `rollback close.pre` is a NO-OP — a pushed branch + open PR is the correct
-//! in-review state, never undone (abandon is `bl unclaim` then `bl close`).
+//! SUBMISSION IS GIT-NATIVE WORK: the worker pushes `work/<id>` and opens the
+//! PR themselves, `[bl-id]` in the PR title — core delivery's tag-scan
+//! (bl-430e) then recognizes the squash-merge as delivered and skips the local
+//! squash. An empty deliverable's gate has no auto-resolve moment: its claimant
+//! closes it by hand. Abandoning a forge-gated task means closing or
+//! `--no-needs`-unlinking the gate first (both skill-doc lines, bl-7bfe).
+//!
+//! **Rollback (§14):** `rollback claim.post` deletes the just-minted gate child
+//! — close is the one retirement, so "delete" is `bl close`. The gate is
+//! DERIVED (the same preserved-key scan), never scratch: every input is
+//! recomputable, so the plugin holds no id-keyed state at all.
 //!
 //! The matrix is pure: every side effect goes through the [`Forge`] seam, so it
 //! is unit-tested against a fake without a repo, a network, or a real `bl`.
 
+use crate::wire::Gate;
 use balls_github_shared::error::Result;
 
 /// The protocol self-description (`<bin> protocol`, §6): this plugin speaks
-/// protocol 1 and handles the delivery ops whose hooks it wires into. balls
-/// reads it at install time, validates the wiring against it, and never persists
-/// it.
-pub const PROTOCOL_JSON: &str = r#"{"protocol":[1],"ops":["claim","close","unclaim","sync"]}"#;
+/// protocol 1 and handles the two ops it hooks. balls reads it at install time,
+/// validates the wiring against it, and never persists it.
+pub const PROTOCOL_JSON: &str = r#"{"protocol":[1],"ops":["claim","sync"]}"#;
 
 /// The side-effecting acts the forge hooks need, behind a seam so [`dispatch`]
-/// is testable without a real repo / network / `bl`. The real impl is
+/// is testable without a real `bl` or network. The real impl is
 /// [`crate::project::Project`].
 pub trait Forge {
-    /// `claim.post`: `bl create` the approval gate child of `parent`, returning
-    /// its minted id.
-    fn create_gate(&self, parent: &str, title: &str) -> Result<String>;
-    /// Persist the `parent → gate` link in the plugin's territory (§1).
-    fn remember_gate(&self, parent: &str, gate: &str) -> Result<()>;
-    /// Read back the gate child id for `parent` (`None` if none recorded).
-    fn recall_gate(&self, parent: &str) -> Result<Option<String>>;
-    /// Forget the `parent → gate` link (the gate is resolved or abandoned).
-    fn forget_gate(&self, parent: &str) -> Result<()>;
-    /// `bl close` the gate child (PR merged, empty deliverable, or rollback —
-    /// with the `drop` verb gone, close is the one terminal, §15 bl-65e0).
-    fn close_gate(&self, gate: &str) -> Result<()>;
-    /// Commit any pending `work/<id>` worktree change so delivery loses nothing.
-    fn capture(&self, id: &str, title: &str) -> Result<()>;
-    /// Does `work/<id>` exist AND differ from `base`? (false = empty deliverable)
-    fn has_changes(&self, id: &str, base: &str) -> Result<bool>;
-    /// Push `work/<id>` and open/update its PR; return the PR URL (the §6 human
-    /// hint balls forwards on stdout).
-    fn push_pr(&self, id: &str, title: &str, base: &str) -> Result<String>;
-    /// `unclaim.post`: close the PR and delete the remote `work/<id>` branch.
-    fn teardown(&self, id: &str) -> Result<()>;
-    /// `sync`: has the PR for `parent`'s `work/<parent>` branch merged?
-    fn pr_merged(&self, parent: &str) -> Result<bool>;
-    /// `sync`: every `(parent, gate)` link the territory still holds.
-    fn pending_gates(&self) -> Result<Vec<(String, String)>>;
+    /// Every OPEN gate child of this plugin's — the preserved-key scan over
+    /// `bl list --json` (closed gates have no file, so absence = resolved).
+    fn open_gates(&self) -> Result<Vec<Gate>>;
+    /// Mint the review gate child of `parent` (`bl create --subtask-of` + the
+    /// join key), returning the minted id.
+    fn mint_gate(&self, parent: &str, title: &str) -> Result<String>;
+    /// `bl close` the gate child (resolve on merge, or the mint rollback —
+    /// close is the one retirement, §10).
+    fn close_gate(&self, gate: &str, note: &str) -> Result<()>;
+    /// The merged PR's URL for `parent`'s `work/<parent>` head branch, if any
+    /// PR exists AND has merged (`None`: no PR yet, or still open).
+    fn merged_pr(&self, parent: &str) -> Result<Option<String>>;
 }
 
-/// The resolved facts one per-ball hook acts on, assembled by the binary edge
-/// from the §7 wire + config. `sync` carries none of these (it has no single
-/// ball) and so does not build a `Ctx`.
+/// The resolved facts a `claim.post` hook acts on, assembled by the binary edge
+/// from the §7 post wire. `sync` carries none of these (it has no single ball)
+/// and uses the default.
 #[derive(Default)]
 pub struct Ctx {
+    /// The claimed task's id (the sealed `bl-id` trailer).
     pub id: String,
+    /// The claimed task's title (the gate child's subject source).
     pub title: String,
-    /// The PR base (per-task `target_branch`, else config default). Only
-    /// `close.pre` reads it; other ops leave it empty.
-    pub base: String,
+    /// `Some(parent)` when the claimed ball itself carries the plugin's join
+    /// key — it IS one of the plugin's gate children, so minting skips.
+    pub gate_of: Option<String>,
 }
 
 /// Run the hook `(op, phase)` — or its rollback when `rolling_back` — against
-/// `forge`. Returns an optional stdout line (the PR URL hint, §6). Unknown hooks
-/// no-op (the plugin acts only where it is wired), as does `rollback close.pre`
-/// (§14).
+/// `forge`. Returns the optional stdout product (§6: the minted gate child's
+/// id; sync's resolved-gate lines). Unknown hooks no-op (the plugin acts only
+/// where it is wired).
 pub fn dispatch(
     op: &str,
     phase: &str,
@@ -93,64 +83,50 @@ pub fn dispatch(
     ctx: &Ctx,
 ) -> Result<Option<String>> {
     match (op, phase, rolling_back) {
-        ("claim", "post", false) => {
-            if forge.recall_gate(&ctx.id)?.is_none() {
-                let gate = forge.create_gate(&ctx.id, &ctx.title)?;
-                forge.remember_gate(&ctx.id, &gate)?;
-            }
-            Ok(None)
-        }
-        ("claim", "post", true) => {
-            release_gate(forge, &ctx.id)?;
-            Ok(None)
-        }
-        ("close", "pre", false) => close_pre(forge, ctx),
-        ("unclaim", "post", false) => {
-            forge.teardown(&ctx.id)?;
-            Ok(None)
-        }
-        ("sync", "post", false) => {
-            sync(forge)?;
-            Ok(None)
-        }
-        // rollback close.pre = no-op (in-review state stays); any unwired hook too.
+        ("claim", "post", false) => claim_post(forge, ctx),
+        ("claim", "post", true) => rollback_claim(forge, &ctx.id),
+        ("sync", "post", false) => sync(forge),
         _ => Ok(None),
     }
 }
 
-/// `close.pre`: capture, then push+PR if there is something to review, else
-/// auto-resolve the gate (the §11 empty deliverable).
-fn close_pre(forge: &dyn Forge, ctx: &Ctx) -> Result<Option<String>> {
-    forge.capture(&ctx.id, &ctx.title)?;
-    if forge.has_changes(&ctx.id, &ctx.base)? {
-        Ok(Some(forge.push_pr(&ctx.id, &ctx.title, &ctx.base)?))
-    } else {
-        release_gate(forge, &ctx.id)?;
-        Ok(None)
+/// `claim.post`: mint the review gate child, unless the claimed task is itself
+/// a gate child of ours (no gates-for-gates) or a standing open gate for it
+/// already exists (idempotent reclaim reuse).
+fn claim_post(forge: &dyn Forge, ctx: &Ctx) -> Result<Option<String>> {
+    if ctx.gate_of.is_some() || gate_of_parent(forge, &ctx.id)?.is_some() {
+        return Ok(None);
     }
+    Ok(Some(forge.mint_gate(&ctx.id, &ctx.title)?))
 }
 
-/// `sync.post`: for each remembered `parent → gate`, close the gate once its PR
-/// has merged, then forget the link.
-fn sync(forge: &dyn Forge) -> Result<()> {
-    for (parent, gate) in forge.pending_gates()? {
-        if forge.pr_merged(&parent)? {
-            forge.close_gate(&gate)?;
-            forge.forget_gate(&parent)?;
+/// `rollback claim.post`: delete (close) the just-minted gate child, derived by
+/// the same key scan — no scratch (§14). No open gate is a clean no-op (the
+/// mint never happened, or was already undone).
+fn rollback_claim(forge: &dyn Forge, parent: &str) -> Result<Option<String>> {
+    if let Some(gate) = gate_of_parent(forge, parent)? {
+        forge.close_gate(&gate, "review gate withdrawn: the claim rolled back")?;
+    }
+    Ok(None)
+}
+
+/// `sync.post`: close every open gate child whose parent's PR has merged. The
+/// returned lines are the §6 human channel — one per resolved gate.
+fn sync(forge: &dyn Forge) -> Result<Option<String>> {
+    let mut lines = Vec::new();
+    for g in forge.open_gates()? {
+        if let Some(url) = forge.merged_pr(&g.parent)? {
+            forge.close_gate(&g.id, &format!("PR merged: {url}"))?;
+            lines.push(format!("{} resolved: {} merged ({url})", g.id, g.parent));
         }
     }
-    Ok(())
+    Ok((!lines.is_empty()).then(|| lines.join("\n")))
 }
 
-/// Close a remembered gate and forget the link — the shared shape behind the
-/// empty-deliverable close and the claim rollback. A parent with no remembered
-/// gate (a non-deliverable never gated) is a clean no-op.
-fn release_gate(forge: &dyn Forge, parent: &str) -> Result<()> {
-    if let Some(gate) = forge.recall_gate(parent)? {
-        forge.close_gate(&gate)?;
-        forge.forget_gate(parent)?;
-    }
-    Ok(())
+/// The open gate child gating `parent`, if any — the derived (never stored)
+/// `parent → gate` join.
+fn gate_of_parent(forge: &dyn Forge, parent: &str) -> Result<Option<String>> {
+    Ok(forge.open_gates()?.into_iter().find(|g| g.parent == parent).map(|g| g.id))
 }
 
 #[cfg(test)]

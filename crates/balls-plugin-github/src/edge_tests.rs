@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::Wire;
 
 #[test]
 fn api_base_defaults_or_takes_the_arg() {
@@ -14,23 +15,38 @@ fn config_path_is_under_the_landing() {
 }
 
 #[test]
-fn resolve_base_prefers_task_then_config() {
-    assert_eq!(resolve_base(Some("dev".into()), Some("main".into()), "close").unwrap(), "dev");
-    assert_eq!(resolve_base(None, Some("main".into()), "close").unwrap(), "main");
+fn ctx_of_reads_id_title_and_join_key_off_the_post_wire() {
+    let w = Wire::parse(
+        r#"{"binding":{"invocation_path":"/p"},"metadata":{"bl-id":["bl-1"]},
+            "previous_state":{"title":"T","k":"bl-elder"}}"#,
+    )
+    .unwrap();
+    let c = ctx_of("claim", &w, "k").unwrap();
+    assert_eq!((c.id.as_str(), c.title.as_str(), c.gate_of.as_deref()), ("bl-1", "T", Some("bl-elder")));
 }
 
 #[test]
-fn resolve_base_requires_a_base_only_for_close() {
-    assert!(resolve_base(None, None, "close").unwrap_err().to_string().contains("no target_branch"));
-    // a non-close op tolerates an absent base (it never reads it)
-    assert_eq!(resolve_base(None, None, "claim").unwrap(), "");
+fn ctx_of_sync_is_empty_and_needs_no_metadata() {
+    let w = Wire::parse(r#"{"binding":{"invocation_path":"/p"}}"#).unwrap();
+    let c = ctx_of("sync", &w, "k").unwrap();
+    assert!(c.id.is_empty() && c.gate_of.is_none());
+}
+
+#[test]
+fn ctx_of_tolerates_a_missing_previous_state_but_not_a_missing_id() {
+    let w = Wire::parse(r#"{"binding":{"invocation_path":"/p"},"metadata":{"bl-id":["bl-1"]}}"#).unwrap();
+    let c = ctx_of("claim", &w, "k").unwrap();
+    assert_eq!((c.id.as_str(), c.title.as_str()), ("bl-1", ""));
+
+    let no_id = Wire::parse(r#"{"binding":{"invocation_path":"/p"}}"#).unwrap();
+    assert!(ctx_of("claim", &no_id, "k").is_err());
 }
 
 #[test]
 fn emit_writes_a_line_only_when_present() {
     let mut buf = Vec::new();
-    emit(Some("https://pr/1".into()), &mut buf).unwrap();
-    assert_eq!(String::from_utf8(buf).unwrap(), "https://pr/1\n");
+    emit(Some("bl-gate".into()), &mut buf).unwrap();
+    assert_eq!(String::from_utf8(buf).unwrap(), "bl-gate\n");
 
     let mut empty = Vec::new();
     emit(None, &mut empty).unwrap();

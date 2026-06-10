@@ -1,20 +1,29 @@
-# balls-plugin-github (forge delivery plugin)
+# balls-plugin-github (forge plugin)
 
 A [balls](https://github.com/mudbungie/balls) **forge plugin** for
-GitHub — the §11 *forge* variant of the delivery / worktree plugin. It
-delivers a task's code through a **pull request** instead of a local
-squash: at `claim` it opens an approval **gate child** (a normal
-`--blocks close` close-blocker, §10); at `close` it pushes the
-`work/<id>` branch and opens/updates the PR; once GitHub merges that PR,
-`sync` closes the gate child so the parent task's next `bl close` is
-unblocked. The forge produces the squash (the merge), so the plugin
-**never squashes locally**.
+GitHub, on the **subtask model** (balls `docs/architecture.md` §11,
+bl-7bfe): the review gate is an ordinary close-blocker **gate child**
+(§10), and the plugin is NOT a delivery variant — it never pushes,
+never opens a PR, and never hooks `close.pre`. It does exactly two
+things:
+
+- **`claim.post`** — mint the review gate child of the claimed task
+  (one `bl create --subtask-of <id>`: parent pointer + reciprocal
+  close-gate in a word), stamped with a plugin-namespaced preserved
+  key that joins gate → parent.
+- **`sync.post`** — for each open gate child, check the parent's PR by
+  its `work/<parent>` head branch; merged ⇒ `bl close` the gate child,
+  unblocking the parent's `bl close`.
+
+**Submission is git-native work**: the worker pushes `work/<id>` and
+opens the PR themselves, with the `[bl-id]` tag in the PR title. The
+squash-merge GitHub produces is what core delivery's tag-scan (bl-430e)
+recognizes at the parent's close, so the local squash is skipped — one
+delivery path, kind-blind.
 
 It speaks the §6/§7 **subprocess protocol** (`<bin> <op> <phase>`, the
 §7 wire on stdin, no return channel) — the same contract the shipped
-`bl-delivery` and `tracker` plugins use. The lifecycle it implements is
-specified in balls's `docs/architecture.md` §11 ("Delivery / worktree
-plugin", FORGE variant) and §9/§10 (close-blocker gating).
+`bl-delivery` and `tracker` plugins use.
 
 This crate is one of two binaries in the
 [`balls-github-plugin` workspace](../../README.md); the sibling
@@ -23,24 +32,20 @@ This crate is one of two binaries in the
 **separate participants** — separate names, projections, and auth dirs.
 
 > A forge plugin is **not** an issue-tracker plugin. It does not sync
-> tasks to GitHub Issues; it drives pull requests for code delivery.
+> tasks to GitHub Issues; it gates code delivery on pull-request review.
 
 ## How it is wired (opt-in)
 
-The forge variant differs from the default DIRECT variant only in *what
-is wired into the delivery hooks*. It runs ALONGSIDE `bl-delivery`, which
-still owns the `work/<id>` code worktree (materialize / tear down /
-re-materialize); the forge plugin only takes over the PR half. To opt a
-landing into forge delivery, set `config/plugins.toml`'s `[hooks]` to:
+`bl-delivery` keeps the WHOLE delivery lifecycle (worktree materialize /
+squash-deliver / tear down) — forge changes *who merges*, never the
+delivery path. To opt a landing into forge review, add the plugin to two
+hooks in `config/plugins.toml`'s `[hooks]`:
 
 ```toml
 [hooks]
-"claim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then gate child
-"close.pre"  = ["balls-plugin-github"]                            # push + PR, NOT a local squash
-"close.post" = ["bl-delivery", "tracker"]                         # bl-delivery still tears the worktree down
-"sync.post"  = ["balls-plugin-github"]                              # close the gate child on merge
-"unclaim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown (abandon = unclaim, then close)
-# prime.post stays on bl-delivery (the worktree lifecycle)
+"claim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then mint the review gate child
+"sync.post"  = ["balls-plugin-github"]                            # close the gate child on PR merge
+# every other hook keeps the default schedule — there is no forge close.pre
 ```
 
 `bl install` resolves each name to this box's binary via the local
@@ -67,16 +72,17 @@ Git-tracked, non-secret, on the landing at
 ```json
 {
   "repo": "owner/name",
-  "target_branch": "main",
   "api_base": "https://api.github.com"
 }
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `repo` | yes | `owner/name` of the GitHub repository. |
-| `target_branch` | no | Default PR base. A task's own `target_branch` (a preserved frontmatter key) overrides it. A forge PR needs a base *somewhere*: if both are unset, `close` errors rather than guessing `main`. |
+| `repo` | yes | `owner/name` of the GitHub repository the PRs live in. |
 | `api_base` | no | API root. Override for GitHub Enterprise. Defaults to `https://api.github.com`. Must be `https://` (`http://` is allowed only on loopback); a non-default base is warned on stderr. |
+
+There is no `target_branch`: the plugin opens no PRs, so it has no base
+to name — the worker picks the base when they open the PR.
 
 The token is the only secret. It is read from **stdin** by `auth-setup`
 (scriptable, no TTY prompt) and stored under the plugin's XDG territory
@@ -88,40 +94,50 @@ echo "$GITHUB_PAT" | balls-plugin-github auth-setup [api_base]
 balls-plugin-github auth-check [api_base]   # re-validate the stored token
 ```
 
-A classic PAT with `repo` scope (or a fine-grained token with
-pull-request read/write **and** contents read/write, for the branch
-push) is sufficient. The branch is pushed with the token in the URL, so
-no ambient credential helper is needed.
+A read-only token suffices: the plugin only **reads** pull requests
+(a classic PAT with `repo` scope, or a fine-grained token with
+pull-request read).
 
 ## Protocol surface
 
 `balls-plugin-github protocol` self-describes as
-`{"protocol":[1],"ops":["claim","close","unclaim","sync"]}`. The hooks:
+`{"protocol":[1],"ops":["claim","sync"]}`. The hooks:
 
 | Hook | Behaviour |
 |---|---|
-| `claim post` | `bl create` the approval gate child (`--parent <id> --blocks close -t forge-gate`), recording the `parent → gate` link in the plugin's territory. Idempotent. |
-| `close pre` | Capture pending `work/<id>` work, then **push** it + open/update the PR (`"<title> [<id>]"`, base = per-task → config). If `work/<id>` has no changes (the empty deliverable), instead **close the gate child** so the close proceeds. Core's close-blocker guard (§10) keeps the close blocked while the PR is unmerged. Prints the PR URL (a §6 human hint). |
-| `sync post` | For each remembered gate, poll its `work/<parent>` PR; when merged, `bl close` the gate child and forget the link → the parent's next `bl close` unblocks. |
-| `unclaim post` | Close the PR and delete the remote `work/<id>` branch (abandonment is `bl unclaim` then `bl close`, §15 bl-65e0). The gate child **stays** — it is the still-open parent's §10 close-blocker; the empty-deliverable `close pre`, a re-claim's new PR, or an explicit approval `bl close` resolves it. |
+| `claim post` | Mint the review gate child: `bl create --subtask-of <id> -- "Review gate: <title>"` (the bl-788e sugar — parent + close-gate in one word), then stamp the join key `bl update <gate> <plugin-name>=<id>`. Prints the minted id (the §6 stdout product). **Skips** when the claimed task itself carries the plugin's key (it IS a gate child — no gates-for-gates) and when an open gate for this parent already exists (an unclaim-and-reclaim reuses it). |
+| `sync post` | Scan `bl list --json` for open tasks carrying the plugin's key; for each, poll the PR whose head is `work/<parent>`; when merged, `bl close` the gate child with the PR URL in the note → the parent's next `bl close` unblocks. Prints one line per resolved gate. |
 
-**Rollback (§14):** rollback of `claim post` closes the just-opened gate
-child; rollback of `close pre` is a **no-op** — a pushed branch + open PR
-is the correct in-review state, never undone (abandon is `bl unclaim`
-then `bl close`).
+**Rollback (§14):** rollback of `claim post` deletes (closes) the
+just-minted gate child, re-derived by the same key scan — the plugin
+keeps no scratch at all: the gate is the key, the PR is the branch name.
 
-The plugin never `bl close`s the *parent* — only the gate child. The
-parent is closed by whoever runs `bl close` after the gate clears.
+**The join key.** Each gate child carries one preserved frontmatter
+extra (§3), `<plugin-name> = "<parent-id>"` — plugin-namespaced, so two
+differently-named forge wirings never claim each other's gates. It is
+the single machine marker; everything else (the PR, the parent's title)
+is derived.
 
-## End-to-end (forge delivery)
+What the plugin deliberately does NOT do (skill-doc lines, bl-7bfe):
+
+- An **empty deliverable**'s gate has no auto-resolve moment — its
+  claimant closes the gate by hand ("nothing to review").
+- **Abandoning** a forge-gated task (`bl unclaim`, then `bl close`)
+  stays blocked by the open gate: close it or `--no-needs`-unlink it
+  first.
+- It never `bl close`s the *parent* — only the gate child. The parent is
+  closed by whoever runs `bl close` after the gate clears.
+
+## End-to-end (forge review)
 
 ```sh
-bl claim bl-1234                 # bl-delivery makes work/bl-1234; forge opens the gate child
+bl claim bl-1234                 # bl-delivery makes work/bl-1234; forge mints the review gate child
 # ... write code in the work/bl-1234 worktree, commit ...
-bl close bl-1234                 # forge pushes work/bl-1234 + opens the PR; close stays BLOCKED on the gate
-# ... reviewers approve and merge the PR on GitHub ...
+git push origin work/bl-1234     # git-native submission: push the branch...
+gh pr create --head work/bl-1234 --title "Add the thing [bl-1234]"   # ...and open the PR ([bl-id] in the title)
+# ... reviewers approve; GitHub squash-merges the PR ...
 bl sync                          # forge sees the merge → closes the gate child
-bl close bl-1234                 # now unblocked; the task retires (delivery already landed via the merge)
+bl close bl-1234                 # unblocked; the tag-scan sees [bl-1234] already on main and skips the local squash
 ```
 
 ## License

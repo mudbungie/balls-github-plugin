@@ -5,7 +5,6 @@ fn env(state: &std::path::Path) -> Env {
         plugin_name: "balls-plugin-github".into(),
         state_home: state.to_path_buf(),
         bl_program: "bl".into(),
-        cwd: state.to_path_buf(),
     }
 }
 
