@@ -1,6 +1,6 @@
 //! End-to-end tests: run the actual binary so `main` and the `edge` dispatch are
 //! exercised (and counted by coverage). The forge plugin shells back to `bl`
-//! (faked via `BALLS_BL`) and never needs the network on these paths.
+//! (faked via `BALLS_BL`) and only the merged-PR probe touches HTTP (mockito).
 
 use assert_cmd::Command;
 use std::os::unix::fs::PermissionsExt;
@@ -8,9 +8,8 @@ use std::path::{Path, PathBuf};
 
 const NAME: &str = "balls-plugin-github";
 
-/// The ambient `GIT_*` vars the pre-commit hook exports; neither the binary
-/// (which runs git against the project repo) nor the fixture `git` may inherit
-/// them, or they would target the hook's repo instead of our tempdirs.
+/// The ambient `GIT_*` vars the pre-commit hook exports; the binary's nested
+/// `bl` strips them itself, but the test harness must not leak them either.
 const GIT_VARS: [&str; 5] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"];
 
 fn bin() -> Command {
@@ -21,46 +20,14 @@ fn bin() -> Command {
     c
 }
 
-fn git(cwd: &Path, args: &[&str]) {
-    let mut c = std::process::Command::new("git");
-    c.arg("-C").arg(cwd);
-    for var in GIT_VARS {
-        c.env_remove(var);
-    }
-    assert!(c.args(args).output().unwrap().status.success());
-}
-
-/// A bare-minimum git repo on `main` (the project root the plugin pushes).
-fn repo(path: &Path) {
-    std::fs::create_dir_all(path).unwrap();
-    git(path, &["init", "-q", "-b", "main"]);
-    git(path, &["config", "user.name", "t"]);
-    git(path, &["config", "user.email", "t@e"]);
-    std::fs::write(path.join("README"), "x\n").unwrap();
-    git(path, &["add", "-A"]);
-    git(path, &["commit", "-qm", "init"]);
-}
-
-/// A change worktree with a staged `tasks/<id>.md` deletion (what `close` hands
-/// the plugin on the pre wire, §7).
-fn change_worktree(path: &Path, id: &str) {
-    repo(path);
-    std::fs::create_dir(path.join("tasks")).unwrap();
-    std::fs::write(path.join("tasks").join(format!("{id}.md")), "+++\n+++\n").unwrap();
-    git(path, &["add", "-A"]);
-    git(path, &["commit", "-qm", "task"]);
-    git(path, &["rm", "-q", &format!("tasks/{id}.md")]);
-}
-
-/// A fake `bl` that records every argv line to `<dir>/bl.log` and prints a
-/// minted id for `create` — the §6 shell-back seam, observable.
-fn fake_bl(dir: &Path) -> PathBuf {
-    let p = dir.join("bl");
-    let log = dir.join("bl.log");
-    let script = format!(
-        "#!/bin/sh\necho \"$@\" >> {}\ncase \"$1\" in create) echo bl-gate;; esac\nexit 0\n",
-        log.display()
-    );
+/// A fake `bl` in the (per-test) project dir: logs argv to `bl.log`, mints an
+/// id on `create`, replays `list.json` on `list` (empty list if absent).
+fn fake_bl(proj: &Path) -> PathBuf {
+    let p = proj.join("bl");
+    let script = "#!/bin/sh\necho \"$@\" >> bl.log\ncase \"$1\" in\n\
+         create) echo bl-gate;;\n\
+         list) [ -f list.json ] && cat list.json || echo '[]';;\n\
+         esac\nexit 0\n";
     std::fs::write(&p, script).unwrap();
     let mut perm = std::fs::metadata(&p).unwrap().permissions();
     perm.set_mode(0o755);
@@ -68,11 +35,11 @@ fn fake_bl(dir: &Path) -> PathBuf {
     p
 }
 
-fn write_config(landing: &Path, target: Option<&str>, api_base: &str) {
+fn write_config(landing: &Path, api_base: &str) {
     let dir = landing.join("config/plugins");
     std::fs::create_dir_all(&dir).unwrap();
-    let t = target.map(|s| format!(r#","target_branch":"{s}""#)).unwrap_or_default();
-    std::fs::write(dir.join(format!("{NAME}.json")), format!(r#"{{"repo":"o/n","api_base":"{api_base}"{t}}}"#)).unwrap();
+    std::fs::write(dir.join(format!("{NAME}.json")), format!(r#"{{"repo":"o/n","api_base":"{api_base}"}}"#))
+        .unwrap();
 }
 
 fn write_token(state: &Path, api_base: &str) {
@@ -84,30 +51,35 @@ fn write_token(state: &Path, api_base: &str) {
 /// The dead-end loopback base for paths that must never reach the network.
 const NO_API: &str = "http://127.0.0.1:1";
 
-fn gate_file(state: &Path, invocation: &str, parent: &str) -> PathBuf {
-    state
-        .join(format!("balls/plugins/{NAME}/by-project"))
-        .join(invocation.trim_start_matches('/'))
-        .join("gates")
-        .join(parent)
-}
-
-/// A hook invocation pre-wired with config + token + fake bl + env.
-fn hook(tmp: &Path, op: &str, phase: &str, wire: &str) -> Command {
-    hook_at(tmp, op, phase, wire, NO_API)
-}
-
-/// Like [`hook`], with the GitHub API base pointed at `api_base`.
-fn hook_at(tmp: &Path, op: &str, phase: &str, wire: &str, api_base: &str) -> Command {
-    write_config(&tmp.join("landing"), Some("main"), api_base);
+/// A hook invocation pre-wired with config + token + fake bl + env. The project
+/// dir (= `binding.invocation_path`) is `<tmp>/proj`; `bl.log` lands there.
+fn hook(tmp: &Path, op: &str, phase: &str, wire: &str, api_base: &str) -> Command {
+    let proj = tmp.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    write_config(&tmp.join("landing"), api_base);
     write_token(&tmp.join("state"), api_base);
     let mut c = bin();
     c.args([op, phase])
         .env("XDG_STATE_HOME", tmp.join("state"))
         .env("BALLS_PLUGIN_NAME", NAME)
-        .env("BALLS_BL", fake_bl(tmp))
+        .env("BALLS_BL", fake_bl(&proj))
         .write_stdin(wire.to_string());
     c
+}
+
+/// A claim.post wire for `<tmp>/proj`, with `extra_state` spliced into
+/// `previous_state` after the title.
+fn claim_wire(tmp: &Path, extra_state: &str) -> String {
+    format!(
+        r#"{{"actor":"alice","binding":{{"invocation_path":"{proj}","landing":"{land}"}},
+            "metadata":{{"bl-id":["bl-1"]}},"previous_state":{{"title":"Do it"{extra_state}}}}}"#,
+        proj = tmp.join("proj").display(),
+        land = tmp.join("landing").display(),
+    )
+}
+
+fn bl_log(tmp: &Path) -> String {
+    std::fs::read_to_string(tmp.join("proj/bl.log")).unwrap_or_default()
 }
 
 #[test]
@@ -120,7 +92,7 @@ fn protocol_self_describes() {
         .env_remove("BALLS_PLUGIN_NAME")
         .assert()
         .success()
-        .stdout(predicates::str::contains(r#""ops":["claim","close","unclaim","sync"]"#));
+        .stdout(predicates::str::contains(r#""ops":["claim","sync"]"#));
 }
 
 #[test]
@@ -141,137 +113,126 @@ fn bad_wire_is_an_error() {
 }
 
 #[test]
-fn claim_post_opens_and_remembers_the_gate() {
+fn claim_post_mints_the_gate_child_and_prints_its_id() {
     let tmp = tempfile::tempdir().unwrap();
-    let proj = tmp.path().join("proj");
-    repo(&proj);
-    let inv = proj.to_string_lossy().into_owned();
-    let wire = format!(
-        r#"{{"actor":"alice","binding":{{"invocation_path":"{inv}","landing":"{}/landing"}},
-            "metadata":{{"bl-id":["bl-1"]}},"current_state":{{"title":"Do it"}}}}"#,
-        tmp.path().to_string_lossy()
-    );
-    hook(tmp.path(), "claim", "post", &wire).assert().success();
-    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
-    assert_eq!(std::fs::read_to_string(gate).unwrap(), "bl-gate");
+    let wire = claim_wire(tmp.path(), "");
+    hook(tmp.path(), "claim", "post", &wire, NO_API)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("bl-gate"));
+    let log = bl_log(tmp.path());
+    assert!(log.contains("list --json"), "{log}"); // the standing-gate check
+    assert!(log.contains("create --subtask-of bl-1 --as alice -- Review gate: Do it"), "{log}");
+    assert!(log.contains(&format!("update bl-gate {NAME}=bl-1 --as alice")), "{log}");
 }
 
 #[test]
-fn close_pre_empty_deliverable_auto_resolves_the_gate() {
+fn claim_post_on_a_gate_child_mints_nothing() {
+    // The claimed ball carries the plugin's own join key — no gates-for-gates.
     let tmp = tempfile::tempdir().unwrap();
-    let proj = tmp.path().join("proj");
-    repo(&proj); // no work/bl-1 branch -> empty deliverable
-    let cwd = tmp.path().join("change");
-    change_worktree(&cwd, "bl-1"); // resolve_id reads the staged deletion here
-    let inv = proj.to_string_lossy().into_owned();
-    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
-    std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
-    std::fs::write(&gate, "bl-gate").unwrap();
-
-    let wire = format!(
-        r#"{{"binding":{{"invocation_path":"{inv}","landing":"{}/landing"}},"current_state":{{"title":"t"}}}}"#,
-        tmp.path().to_string_lossy()
-    );
-    hook(tmp.path(), "close", "pre", &wire).current_dir(&cwd).assert().success();
-    assert!(!gate.exists(), "gate should be forgotten after auto-resolve");
+    let wire = claim_wire(tmp.path(), &format!(r#","{NAME}":"bl-elder""#));
+    hook(tmp.path(), "claim", "post", &wire, NO_API).assert().success().stdout(predicates::str::is_empty());
+    assert!(!bl_log(tmp.path()).contains("create"));
 }
 
 #[test]
-fn sync_post_with_no_pending_gates_is_a_noop() {
+fn claim_post_reuses_a_standing_gate() {
     let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+    std::fs::write(
+        tmp.path().join("proj/list.json"),
+        format!(r#"[{{"id":"bl-g1","{NAME}":"bl-1"}}]"#),
+    )
+    .unwrap();
+    let wire = claim_wire(tmp.path(), "");
+    hook(tmp.path(), "claim", "post", &wire, NO_API).assert().success().stdout(predicates::str::is_empty());
+    assert!(!bl_log(tmp.path()).contains("create"));
+}
+
+#[test]
+fn rollback_claim_post_closes_the_minted_gate() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+    std::fs::write(
+        tmp.path().join("proj/list.json"),
+        format!(r#"[{{"id":"bl-g1","{NAME}":"bl-1"}}]"#),
+    )
+    .unwrap();
     let wire = format!(
-        r#"{{"binding":{{"invocation_path":"{0}/proj","landing":"{0}/landing"}}}}"#,
-        tmp.path().to_string_lossy()
+        r#"{{"actor":"alice","binding":{{"invocation_path":"{proj}","landing":"{land}"}},
+            "metadata":{{"bl-id":["bl-1"]}},"rolling_back":"post"}}"#,
+        proj = tmp.path().join("proj").display(),
+        land = tmp.path().join("landing").display(),
     );
-    hook(tmp.path(), "sync", "post", &wire).assert().success();
+    hook(tmp.path(), "claim", "post", &wire, NO_API).assert().success();
+    let log = bl_log(tmp.path());
+    assert!(log.contains("close bl-g1 -m review gate withdrawn"), "{log}");
 }
 
 #[test]
 fn sync_post_closes_the_gate_once_the_pr_merges() {
-    // The headline forge lifecycle, end-to-end through the BUILT BINARY:
-    // a remembered gate child + a merged PR for `work/<parent>` must shell
-    // `bl close <gate>` (stamped with the wire actor) and forget the link.
-    let tmp = tempfile::tempdir().unwrap();
-    let proj = tmp.path().join("proj");
-    repo(&proj);
-    let inv = proj.to_string_lossy().into_owned();
-    let mut server = mockito::Server::new();
-    server
-        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+    let mut s = mockito::Server::new();
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+        .match_query(mockito::Matcher::UrlEncoded("head".into(), "o:work/bl-1".into()))
         .with_status(200)
-        .with_body(r#"[{"number":6,"html_url":"https://gh/pr/6","merged":true}]"#)
+        .with_body(r#"[{"html_url":"https://gh/pr/4","merged_at":"2026-06-09T00:00:00Z"}]"#)
         .create();
-    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
-    std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
-    std::fs::write(&gate, "bl-gate").unwrap();
-
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+    std::fs::write(
+        tmp.path().join("proj/list.json"),
+        format!(r#"[{{"id":"bl-g1","{NAME}":"bl-1"}}]"#),
+    )
+    .unwrap();
     let wire = format!(
-        r#"{{"actor":"alice","binding":{{"invocation_path":"{inv}","landing":"{}/landing"}}}}"#,
-        tmp.path().to_string_lossy()
+        r#"{{"actor":"alice","binding":{{"invocation_path":"{proj}","landing":"{land}"}}}}"#,
+        proj = tmp.path().join("proj").display(),
+        land = tmp.path().join("landing").display(),
     );
-    hook_at(tmp.path(), "sync", "post", &wire, &server.url()).assert().success();
-
-    let log = std::fs::read_to_string(tmp.path().join("bl.log")).unwrap();
-    assert!(log.contains("close bl-gate --as alice"), "bl calls: {log}");
-    assert!(!gate.exists(), "merged gate link should be forgotten");
+    hook(tmp.path(), "sync", "post", &wire, &s.url())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("bl-g1 resolved: bl-1 merged (https://gh/pr/4)"));
+    assert!(bl_log(tmp.path()).contains("close bl-g1 -m PR merged: https://gh/pr/4"));
 }
 
 #[test]
-fn sync_post_keeps_the_gate_while_the_pr_is_open() {
-    // Same wiring, PR not merged: no `bl` verb fires and the link survives,
-    // so the parent's `bl close` stays blocked until the merge.
-    let tmp = tempfile::tempdir().unwrap();
-    let proj = tmp.path().join("proj");
-    repo(&proj);
-    let inv = proj.to_string_lossy().into_owned();
-    let mut server = mockito::Server::new();
-    server
-        .mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+fn sync_post_leaves_unmerged_gates_open() {
+    let mut s = mockito::Server::new();
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
         .with_status(200)
-        .with_body(r#"[{"number":6,"html_url":"https://gh/pr/6","merged":false}]"#)
+        .with_body("[]")
         .create();
-    let gate = gate_file(&tmp.path().join("state"), &inv, "bl-1");
-    std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
-    std::fs::write(&gate, "bl-gate").unwrap();
-
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+    std::fs::write(
+        tmp.path().join("proj/list.json"),
+        format!(r#"[{{"id":"bl-g1","{NAME}":"bl-1"}}]"#),
+    )
+    .unwrap();
     let wire = format!(
-        r#"{{"actor":"alice","binding":{{"invocation_path":"{inv}","landing":"{}/landing"}}}}"#,
-        tmp.path().to_string_lossy()
+        r#"{{"binding":{{"invocation_path":"{proj}","landing":"{land}"}}}}"#,
+        proj = tmp.path().join("proj").display(),
+        land = tmp.path().join("landing").display(),
     );
-    hook_at(tmp.path(), "sync", "post", &wire, &server.url()).assert().success();
-
-    assert!(!tmp.path().join("bl.log").exists(), "no verb should fire for an open PR");
-    assert_eq!(std::fs::read_to_string(&gate).unwrap(), "bl-gate");
+    hook(tmp.path(), "sync", "post", &wire, &s.url()).assert().success().stdout(predicates::str::is_empty());
+    assert!(!bl_log(tmp.path()).contains("close"));
 }
 
 #[test]
-fn missing_config_or_token_errors() {
+fn hook_errors_cleanly_without_config_or_token() {
     let tmp = tempfile::tempdir().unwrap();
     let wire = format!(
         r#"{{"binding":{{"invocation_path":"/x","landing":"{}/landing"}},"metadata":{{"bl-id":["bl-1"]}}}}"#,
-        tmp.path().to_string_lossy()
+        tmp.path().display()
     );
     // no config written
     bin().args(["claim", "post"]).env("XDG_STATE_HOME", tmp.path().join("state")).env("BALLS_PLUGIN_NAME", NAME)
         .write_stdin(wire.clone()).assert().failure();
     // config present, token absent (fresh state dir)
-    write_config(&tmp.path().join("landing"), Some("main"), NO_API);
+    write_config(&tmp.path().join("landing"), NO_API);
     bin().args(["claim", "post"]).env("XDG_STATE_HOME", tmp.path().join("state2")).env("BALLS_PLUGIN_NAME", NAME)
         .write_stdin(wire).assert().failure();
-}
-
-#[test]
-fn close_without_a_target_branch_errors() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_config(&tmp.path().join("landing"), None, NO_API); // no target_branch
-    write_token(&tmp.path().join("state"), NO_API);
-    let wire = format!(
-        r#"{{"binding":{{"invocation_path":"/x","landing":"{}/landing"}},"metadata":{{"bl-id":["bl-1"]}},"current_state":{{"title":"t"}}}}"#,
-        tmp.path().to_string_lossy()
-    );
-    bin().args(["close", "pre"]).env("XDG_STATE_HOME", tmp.path().join("state")).env("BALLS_PLUGIN_NAME", NAME)
-        .env("BALLS_BL", fake_bl(tmp.path())).write_stdin(wire).assert().failure()
-        .stderr(predicates::str::contains("target_branch"));
 }
 
 #[test]

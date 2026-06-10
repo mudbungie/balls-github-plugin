@@ -1,17 +1,20 @@
-//! `balls-plugin-github` — the §11 forge delivery variant, a §6/§7 subprocess
-//! plugin.
+//! `balls-plugin-github` — the GitHub forge plugin, a §6/§7 subprocess plugin
+//! on the SUBTASK model (bl-7bfe): the review gate is an ordinary close-blocker
+//! gate child, NOT a delivery variant.
 //!
-//! It is wired ALONGSIDE the worktree-owning `bl-delivery`, taking over only the
-//! delivery hooks that make delivery go through a pull request instead of a local
-//! squash (see [`forge`] for the matrix):
+//! It is wired ALONGSIDE the worktree-owning `bl-delivery` (which keeps every
+//! delivery hook — there is no forge `close.pre`); this plugin touches exactly
+//! two moments:
 //!
 //! ```text
-//! claim.post = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then gate child
-//! close.pre  = ["balls-plugin-github"]                            # push + PR, NOT a local squash
-//! close.post = ["bl-delivery", "tracker"]                         # bl-delivery still tears the worktree down
-//! sync.post  = ["balls-plugin-github"]                            # close the gate child on merge
-//! unclaim.post = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree + PR teardown
+//! claim.post = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then mint the review gate child
+//! sync.post  = ["balls-plugin-github"]                            # close the gate child on PR merge
 //! ```
+//!
+//! Submission is GIT-NATIVE WORK: the worker pushes `work/<id>` and opens the
+//! PR themselves with `[bl-id]` in the title; the merged squash is what core
+//! delivery's tag-scan (bl-430e) recognizes, so the parent's `bl close` skips
+//! the local squash. See [`forge`] for the full matrix and the rollback shape.
 //!
 //! `main` only adapts the process boundary: it reads the §6 env ONCE here (the
 //! bl-bfa8 rule — no env reads in the library modules), slurps stdin (the §7
@@ -19,13 +22,10 @@
 
 mod authcmd;
 mod bl_ops;
-mod config;
 mod edge;
 mod forge;
-mod git_ops;
 mod pr_api;
 mod project;
-mod scratch;
 mod wire;
 
 use std::env;
@@ -33,8 +33,8 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::exit;
 
-/// The plugin's own name — the User-Agent it sends, and the territory/config
-/// default when balls does not name it via `BALLS_PLUGIN_NAME`.
+/// The plugin's own name — the User-Agent it sends, and the territory/config/
+/// join-key default when balls does not name it via `BALLS_PLUGIN_NAME`.
 pub const USER_AGENT: &str = "balls-plugin-github";
 
 /// The process-edge environment the §6 dispatch needs, read ONCE in [`main`].
@@ -42,7 +42,6 @@ pub struct Env {
     pub plugin_name: String,
     pub state_home: PathBuf,
     pub bl_program: PathBuf,
-    pub cwd: PathBuf,
 }
 
 fn main() {
@@ -60,9 +59,9 @@ fn main() {
     }
 }
 
-/// Resolve the §6 env: the balls-assigned plugin name, the XDG state home (the
-/// territory base, §1), the `bl` to shell back to, and the cwd (the change
-/// worktree a `close.pre` recovers its id from, §7).
+/// Resolve the §6 env: the balls-assigned plugin name (also the join key the
+/// gate children carry), the XDG state home (the auth territory base, §1), and
+/// the `bl` to shell back to.
 fn read_env() -> Env {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let state_home = env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
@@ -70,6 +69,5 @@ fn read_env() -> Env {
         plugin_name: env::var("BALLS_PLUGIN_NAME").unwrap_or_else(|_| USER_AGENT.to_string()),
         state_home,
         bl_program: env::var_os("BALLS_BL").map_or_else(|| PathBuf::from("bl"), PathBuf::from),
-        cwd: env::current_dir().unwrap_or_default(),
     }
 }

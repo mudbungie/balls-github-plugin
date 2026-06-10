@@ -12,7 +12,7 @@ fn fake_bl(dir: &Path, body: &str) -> PathBuf {
 }
 
 #[test]
-fn create_gate_parses_id_and_passes_the_right_args() {
+fn create_gate_parses_id_and_uses_the_subtask_sugar() {
     let dir = tempfile::tempdir().unwrap();
     // print the id on stdout, record argv to args.txt in cwd
     let bl = fake_bl(dir.path(), r#"echo bl-newid; printf '%s\n' "$*" > args.txt"#);
@@ -20,10 +20,11 @@ fn create_gate_parses_id_and_passes_the_right_args() {
 
     assert_eq!(runner.create_gate("bl-p", "Do it").unwrap(), "bl-newid");
     let args = std::fs::read_to_string(dir.path().join("args.txt")).unwrap();
-    assert!(args.contains("create --parent bl-p --blocks close -t forge-gate --as alice"));
-    // The PR-sourced title rides behind `--` (end-of-options): a hostile
+    // --subtask-of = parent + reciprocal close-gate in one word (bl-788e, §10).
+    assert!(args.contains("create --subtask-of bl-p --as alice"), "args: {args}");
+    // The task-sourced title rides behind `--` (end-of-options): a hostile
     // `-`-leading title can never hijack a flag.
-    assert!(args.contains("-- Forge approval gate: Do it"), "args: {args}");
+    assert!(args.contains("-- Review gate: Do it"), "args: {args}");
 }
 
 #[test]
@@ -43,13 +44,37 @@ fn create_gate_errors_when_no_id_is_minted() {
 }
 
 #[test]
-fn close_runs_the_verb() {
+fn set_extra_stamps_the_join_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let bl = fake_bl(dir.path(), r#"printf '%s\n' "$*" > last.txt"#);
+    let runner = Bl::new(&bl, dir.path(), "alice");
+
+    runner.set_extra("bl-g", "balls-plugin-github", "bl-p").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("last.txt")).unwrap().trim(),
+        "update bl-g balls-plugin-github=bl-p --as alice"
+    );
+}
+
+#[test]
+fn close_runs_the_verb_with_the_note() {
     let dir = tempfile::tempdir().unwrap();
     let bl = fake_bl(dir.path(), r#"printf '%s\n' "$*" > last.txt"#);
     let runner = Bl::new(&bl, dir.path(), "bob");
 
-    runner.close("bl-g").unwrap();
-    assert_eq!(std::fs::read_to_string(dir.path().join("last.txt")).unwrap().trim(), "close bl-g --as bob");
+    runner.close("bl-g", "PR merged: u").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("last.txt")).unwrap().trim(),
+        "close bl-g -m PR merged: u --as bob"
+    );
+}
+
+#[test]
+fn list_json_returns_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    let bl = fake_bl(dir.path(), r"echo '[]'");
+    let runner = Bl::new(&bl, dir.path(), "a");
+    assert_eq!(runner.list_json().unwrap().trim(), "[]");
 }
 
 #[test]
@@ -60,7 +85,7 @@ fn a_busy_executable_is_retried_then_surfaced() {
     // so the bounded retry exhausts and the error surfaces (rather than hanging).
     let _hold = std::fs::OpenOptions::new().write(true).open(&bl).unwrap();
     let runner = Bl::new(&bl, dir.path(), "a");
-    assert!(runner.close("bl-g").is_err());
+    assert!(runner.close("bl-g", "n").is_err());
 }
 
 #[test]
@@ -68,6 +93,6 @@ fn nonzero_exit_becomes_an_error_with_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let bl = fake_bl(dir.path(), "echo boom >&2; exit 1");
     let runner = Bl::new(&bl, dir.path(), "a");
-    let err = runner.close("bl-g").unwrap_err().to_string();
+    let err = runner.close("bl-g", "n").unwrap_err().to_string();
     assert!(err.contains("boom"), "{err}");
 }

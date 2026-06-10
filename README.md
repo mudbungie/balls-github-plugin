@@ -6,7 +6,7 @@ auth/HTTP/config:
 
 | Crate | What it is |
 |---|---|
-| [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge delivery plugin.** The §11 *forge* variant of the delivery plugin: at `claim` it opens an approval gate child (`--blocks close`); at `close` it pushes `work/<id>` and opens/updates the PR (no local squash); `sync` closes the gate child once the PR merges, unblocking the parent's `bl close`. Speaks the §6/§7 subprocess protocol. Implements `docs/architecture.md` §11 (FORGE) + §9/§10. |
+| [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge plugin** (subtask model, bl-7bfe — NOT a delivery variant). At `claim.post` it mints a review **gate child** (`bl create --subtask-of <id>`, a normal §10 close-blocker) carrying a plugin-namespaced join key; at `sync.post` it closes each gate child whose parent's `work/<id>` PR has merged. PR submission is git-native work (the worker pushes + opens the PR, `[bl-id]` in the title); there is no forge `close.pre`. Speaks the §6/§7 subprocess protocol. Implements `docs/architecture.md` §10/§11 (FORGE). |
 | [`balls-plugin-github-issues`](crates/balls-plugin-github-issues/) | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back on `sync` by shelling the public verbs (`bl create`/`update`/`close` — there is no return channel, §7). |
 | [`balls-github-shared`](crates/balls-github-shared/) | Library crate. Token I/O, the base `GithubClient` (auth + status mapping + `GET /user`), the shared `RepoConfig` (repo + api_base), and the shared §7 wire shapes (`Binding`, `Metadata`/`metadata_id`). |
 
@@ -15,11 +15,11 @@ auth/HTTP/config:
 balls's participant model is "**one participant = one name**". A forge
 *delivery* plugin and an issue-tracker plugin are *different roles*:
 
-- The forge plugin is a **delivery** variant (§11): it drives the
-  `work/<id>` pull request and an approval gate child. It is STATELESS —
-  it keeps no `task.external.*` projection, re-finding the PR each time by
-  its head branch (`work/<id>`) and tracking only the `parent → gate`
-  link in its own XDG territory.
+- The forge plugin gates delivery on PR review (§10/§11): it mints the
+  review gate child and resolves it on merge. It is STATELESS — it keeps
+  no `task.external.*` projection and no scratch: the `parent → gate`
+  join is a preserved key on the gate child itself, and the PR is
+  re-found each sync by its head branch (`work/<id>`).
 - The issues plugin owns `task.external.github-issues.*` (the issue ref)
   and participates in `create`/`update`/`close`/`sync` to keep GitHub
   Issues in sync with balls tasks.

@@ -1,80 +1,80 @@
 use super::*;
-use balls_github_shared::error::PluginError;
+
+const KEY: &str = "balls-plugin-github";
 
 #[test]
-fn parses_full_pre_wire() {
+fn parses_a_full_post_wire() {
     let w = Wire::parse(
-        r#"{"actor":"alice",
+        r#"{
+            "protocol":1,"op":"claim","phase":"post","actor":"alice",
             "binding":{"invocation_path":"/proj","landing":"/land"},
-            "current_state":{"title":"Do it","target_branch":"develop"}}"#,
+            "metadata":{"bl-id":["bl-1"],"bl-op":["claim"]},
+            "previous_state":{"title":"Do it","balls-plugin-github":"bl-elder"},
+            "commit":"c2","previous_commit":"c1"
+        }"#,
     )
     .unwrap();
     assert_eq!(w.actor, "alice");
     assert_eq!(w.binding.invocation_path, "/proj");
-    assert_eq!(w.binding.landing, "/land");
-    let st = w.current_state.unwrap();
-    assert_eq!(st.title, "Do it");
-    assert_eq!(st.target_branch.as_deref(), Some("develop"));
-    assert!(w.metadata.is_none());
+    assert_eq!(sealed_id(w.metadata.as_ref()).unwrap(), "bl-1");
+    let s = w.previous_state.unwrap();
+    assert_eq!(s.title, "Do it");
+    assert_eq!(s.extra_str(KEY), Some("bl-elder"));
+    assert_eq!(s.extra_str("absent"), None);
     assert!(w.rolling_back.is_none());
 }
 
 #[test]
-fn defaults_when_minimal() {
+fn parses_a_minimal_diffless_sync_wire() {
+    // §13: sync carries no metadata, no states, no rolling_back.
     let w = Wire::parse(r#"{"binding":{"invocation_path":"/p"}}"#).unwrap();
     assert_eq!(w.actor, "");
-    assert_eq!(w.binding.landing, "");
-    assert!(w.current_state.is_none());
+    assert!(w.metadata.is_none());
+    assert!(w.previous_state.is_none());
 }
 
 #[test]
-fn parses_rollback_and_metadata() {
+fn extra_str_ignores_non_string_values() {
+    let s: State = serde_json::from_str(r#"{"title":"t","balls-plugin-github":7}"#).unwrap();
+    assert_eq!(s.extra_str(KEY), None);
+}
+
+#[test]
+fn rollback_wire_carries_the_phase() {
     let w = Wire::parse(
-        r#"{"binding":{"invocation_path":"/p"},
-            "rolling_back":"post",
-            "metadata":{"bl-id":["bl-1234"]}}"#,
+        r#"{"binding":{"invocation_path":"/p"},"metadata":{"bl-id":["bl-1"]},"rolling_back":"post"}"#,
     )
     .unwrap();
     assert_eq!(w.rolling_back.as_deref(), Some("post"));
-    assert_eq!(w.metadata.unwrap()["bl-id"], vec!["bl-1234"]);
 }
 
 #[test]
-fn bad_json_errors() {
-    assert!(Wire::parse("not json").is_err());
+fn sealed_id_errors_without_the_trailer() {
+    let err = sealed_id(None).unwrap_err().to_string();
+    assert!(err.contains("bl-id"), "{err}");
 }
 
 #[test]
-fn resolve_id_prefers_metadata() {
-    let mut m = Metadata::new();
-    m.insert("bl-id".into(), vec!["bl-aaaa".into()]);
-    let id = resolve_id(Some(&m), || panic!("should not read changed paths")).unwrap();
-    assert_eq!(id, "bl-aaaa");
+fn open_gates_scans_rows_carrying_the_key() {
+    let json = r#"[
+        {"id":"bl-g1","title":"Review gate: x","balls-plugin-github":"bl-p"},
+        {"id":"bl-w1","title":"ordinary work"},
+        {"id":"bl-g2","title":"Review gate: y","balls-plugin-github":"bl-q"},
+        {"id":"bl-odd","balls-plugin-github":3},
+        {"title":"no id somehow","balls-plugin-github":"bl-r"}
+    ]"#;
+    let gates = open_gates(json, KEY).unwrap();
+    assert_eq!(
+        gates,
+        vec![
+            Gate { id: "bl-g1".into(), parent: "bl-p".into() },
+            Gate { id: "bl-g2".into(), parent: "bl-q".into() },
+        ]
+    );
 }
 
 #[test]
-fn resolve_id_falls_back_to_single_changed_file() {
-    let id = resolve_id(None, || Ok(vec!["tasks/bl-bbbb.md".into()])).unwrap();
-    assert_eq!(id, "bl-bbbb");
-}
-
-#[test]
-fn resolve_id_ignores_metadata_without_bl_id() {
-    let m = Metadata::new();
-    let id = resolve_id(Some(&m), || Ok(vec!["tasks/bl-cccc.md".into()])).unwrap();
-    assert_eq!(id, "bl-cccc");
-}
-
-#[test]
-fn resolve_id_rejects_zero_or_many() {
-    let err = resolve_id(None, || Ok(vec![])).unwrap_err();
-    assert!(matches!(err, PluginError::Other(_)));
-    let err = resolve_id(None, || Ok(vec!["tasks/a.md".into(), "tasks/b.md".into()])).unwrap_err();
-    assert!(err.to_string().contains("found 2"));
-}
-
-#[test]
-fn resolve_id_propagates_changed_error() {
-    let err = resolve_id(None, || Err(PluginError::Other("git boom".into()))).unwrap_err();
-    assert!(err.to_string().contains("git boom"));
+fn open_gates_rejects_bad_json() {
+    let err = open_gates("not json", KEY).unwrap_err().to_string();
+    assert!(err.contains("bl list --json"), "{err}");
 }

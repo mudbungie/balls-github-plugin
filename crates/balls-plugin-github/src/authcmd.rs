@@ -4,16 +4,19 @@
 //! one secret, stored under the plugin's territory `auth/` dir (§1), mode 0600,
 //! by the shared `auth` module. Core never reads it.
 
-use crate::scratch::Territory;
 use crate::{Env, USER_AGENT};
 use balls_github_shared::auth;
 use balls_github_shared::error::Result;
 use balls_github_shared::http::GithubClient;
 use std::io::Write;
+use std::path::PathBuf;
 
-fn auth_dir(env: &Env) -> std::path::PathBuf {
-    // The token is per-machine, not per-project, so the invocation key is empty.
-    Territory::new(&env.state_home, &env.plugin_name, "").auth_dir()
+/// The auth dir in the plugin's §1 territory:
+/// `$XDG_STATE_HOME/balls/plugins/<name>/auth`. The token is per-machine, not
+/// per-project, so no invocation path keys it.
+#[must_use]
+pub fn auth_dir(env: &Env) -> PathBuf {
+    env.state_home.join("balls").join("plugins").join(&env.plugin_name).join("auth")
 }
 
 /// Read the token from stdin (already passed as `token`), validate it against

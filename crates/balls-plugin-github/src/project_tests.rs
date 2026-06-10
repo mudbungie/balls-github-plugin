@@ -1,171 +1,110 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-/// A `git -C <cwd>` Command with the ambient `GIT_*` vars stripped (the
-/// pre-commit hook exports them; a child `git` must not inherit them).
-fn gitcmd(cwd: &Path) -> Command {
-    let mut c = Command::new("git");
-    c.arg("-C").arg(cwd);
-    for var in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"] {
-        c.env_remove(var);
-    }
-    c
-}
+const UA_KEY: &str = "balls-plugin-github";
 
-fn git(cwd: &Path, args: &[&str]) {
-    assert!(gitcmd(cwd).args(args).output().unwrap().status.success(), "git {args:?}");
-}
-
+/// A fake `bl` logging argv to `bl.log`; `create` mints an id, `list` replays
+/// `list.json` from cwd, `update` exits with the contents of `update.exit` (if
+/// present).
 fn fake_bl(dir: &Path) -> PathBuf {
     let p = dir.join("bl");
-    // print an id for `create`, succeed silently otherwise
-    std::fs::write(&p, "#!/bin/sh\ncase \"$1\" in create) echo bl-gate;; esac\nexit 0\n").unwrap();
+    let script = "#!/bin/sh\necho \"$@\" >> bl.log\ncase \"$1\" in\n\
+         create) echo bl-gate;;\n\
+         list) cat list.json;;\n\
+         update) [ -f update.exit ] && exit \"$(cat update.exit)\";;\n\
+         esac\nexit 0\n";
+    std::fs::write(&p, script).unwrap();
     let mut perm = std::fs::metadata(&p).unwrap().permissions();
     perm.set_mode(0o755);
     std::fs::set_permissions(&p, perm).unwrap();
     p
 }
 
-struct Harness {
-    dir: tempfile::TempDir,
-    root: PathBuf,
-    bare: PathBuf,
-    state: PathBuf,
-    bl: PathBuf,
+fn project(dir: &Path, api_base: &str) -> Project {
+    let config: RepoConfig = serde_json::from_str(&format!(r#"{{"repo":"o/n","api_base":{api_base:?}}}"#)).unwrap();
+    let bl = Bl::new(&fake_bl(dir), dir, "alice");
+    Project::new(&config, "tok", UA_KEY.into(), bl)
 }
 
-impl Harness {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("proj");
-        std::fs::create_dir_all(&root).unwrap();
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.name", "t"]);
-        git(&root, &["config", "user.email", "t@e"]);
-        std::fs::write(root.join("README"), "hi\n").unwrap();
-        git(&root, &["add", "-A"]);
-        git(&root, &["commit", "-qm", "init"]);
-        let bare = dir.path().join("remote.git");
-        git(dir.path(), &["init", "--bare", "-q", bare.to_str().unwrap()]);
-        let state = dir.path().join("state");
-        let bl = fake_bl(dir.path());
-        Self { dir, root, bare, state, bl }
-    }
+fn log(dir: &Path) -> String {
+    std::fs::read_to_string(dir.join("bl.log")).unwrap_or_default()
+}
 
-    /// A `work/bl-1` worktree carrying a committed change (so it is pushable).
-    fn with_work(&self) {
-        let wt = self.dir.path().join("wt");
-        git(&self.root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "work/bl-1"]);
-        std::fs::write(wt.join("change.txt"), "delivered\n").unwrap();
-        git(&wt, &["add", "-A"]);
-        git(&wt, &["commit", "-qm", "work"]);
-    }
+/// The dead-end loopback base for paths that must never reach the network.
+const NO_API: &str = "http://127.0.0.1:1";
 
-    fn project(&self, api_base: &str) -> Project {
-        let config: PluginConfig =
-            serde_json::from_str(&format!(r#"{{"repo":"o/n","api_base":"{api_base}"}}"#)).unwrap();
-        Project::new(
-            &config,
-            "tok",
-            self.bare.to_string_lossy().into_owned(),
-            Git::at(&self.root),
-            Bl::new(&self.bl, &self.root, "alice"),
-            Territory::new(&self.state, "balls-plugin-github", "/proj"),
-        )
-    }
+#[test]
+fn open_gates_scans_the_live_list() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("list.json"),
+        r#"[{"id":"bl-g","balls-plugin-github":"bl-p"},{"id":"bl-w"}]"#,
+    )
+    .unwrap();
+    let p = project(dir.path(), NO_API);
+    let gates = p.open_gates().unwrap();
+    assert_eq!(gates, vec![Gate { id: "bl-g".into(), parent: "bl-p".into() }]);
+    assert!(log(dir.path()).contains("list --json"));
 }
 
 #[test]
-fn subject_carries_the_id_tag() {
-    assert_eq!(subject("Fix it", "bl-9"), "Fix it [bl-9]");
+fn mint_gate_creates_then_stamps_the_join_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = project(dir.path(), NO_API);
+    assert_eq!(p.mint_gate("bl-p", "Do it").unwrap(), "bl-gate");
+    let log = log(dir.path());
+    assert!(log.contains("create --subtask-of bl-p --as alice -- Review gate: Do it"), "{log}");
+    assert!(log.contains("update bl-gate balls-plugin-github=bl-p --as alice"), "{log}");
 }
 
 #[test]
-fn gate_lifecycle_uses_bl_and_territory() {
-    let h = Harness::new();
-    let p = h.project("http://x");
-    assert_eq!(p.create_gate("bl-p", "T").unwrap(), "bl-gate");
-    p.remember_gate("bl-p", "bl-gate").unwrap();
-    assert_eq!(p.recall_gate("bl-p").unwrap().as_deref(), Some("bl-gate"));
-    assert_eq!(p.pending_gates().unwrap(), vec![("bl-p".to_string(), "bl-gate".to_string())]);
-    p.close_gate("bl-gate").unwrap();
-    p.forget_gate("bl-p").unwrap();
-    assert_eq!(p.recall_gate("bl-p").unwrap(), None);
+fn mint_gate_withdraws_the_half_minted_gate_when_the_stamp_fails() {
+    // §14: a failing plugin cleans up inline — the keyless gate would be
+    // underivable, so it is closed before the error surfaces.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("update.exit"), "1").unwrap();
+    let p = project(dir.path(), NO_API);
+    assert!(p.mint_gate("bl-p", "t").is_err());
+    assert!(log(dir.path()).contains("close bl-gate -m withdrawn"), "{}", log(dir.path()));
 }
 
 #[test]
-fn capture_and_has_changes_track_the_work_branch() {
-    let h = Harness::new();
-    let p = h.project("http://x");
-    assert!(!p.has_changes("bl-1", "main").unwrap()); // no branch yet
-    h.with_work();
-    p.capture("bl-1", "T").unwrap(); // already committed -> no-op
-    assert!(p.has_changes("bl-1", "main").unwrap());
+fn close_gate_delegates_to_bl_close() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = project(dir.path(), NO_API);
+    p.close_gate("bl-g", "PR merged: u").unwrap();
+    assert!(log(dir.path()).contains("close bl-g -m PR merged: u --as alice"));
 }
 
 #[test]
-fn push_pr_creates_a_pr_when_none_exists() {
-    let h = Harness::new();
-    h.with_work();
+fn merged_pr_returns_the_url_only_once_merged() {
     let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into())).with_status(200).with_body("[]").create();
-    s.mock("POST", "/repos/o/n/pulls")
-        .with_status(201)
-        .with_body(r#"{"number":5,"html_url":"https://gh/pr/5"}"#)
+    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+        .match_query(mockito::Matcher::UrlEncoded("head".into(), "o:work/bl-p".into()))
+        .with_status(200)
+        .with_body(r#"[{"html_url":"https://gh/pr/4","merged_at":"2026-06-09T00:00:00Z"}]"#)
         .create();
-    let p = h.project(&s.url());
-    assert_eq!(p.push_pr("bl-1", "Do it", "main").unwrap(), "https://gh/pr/5");
-    assert!(gitcmd(&h.bare).args(["rev-parse", "--verify", "refs/heads/work/bl-1"]).output().unwrap().status.success());
+    let dir = tempfile::tempdir().unwrap();
+    let p = project(dir.path(), &s.url());
+    assert_eq!(p.merged_pr("bl-p").unwrap(), Some("https://gh/pr/4".into()));
 }
 
 #[test]
-fn push_pr_reuses_an_existing_pr() {
-    let h = Harness::new();
-    h.with_work();
+fn merged_pr_is_none_for_an_open_pr_or_no_pr() {
     let mut s = mockito::Server::new();
     s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
         .with_status(200)
-        .with_body(r#"[{"number":8,"html_url":"https://gh/pr/8"}]"#)
+        .with_body(r#"[{"html_url":"u","merged_at":null}]"#)
         .create();
-    let p = h.project(&s.url());
-    assert_eq!(p.push_pr("bl-1", "Do it", "main").unwrap(), "https://gh/pr/8");
-}
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(project(dir.path(), &s.url()).merged_pr("bl-p").unwrap(), None);
 
-#[test]
-fn teardown_closes_pr_and_deletes_remote_branch() {
-    let h = Harness::new();
-    h.with_work();
-    let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
+    let mut s2 = mockito::Server::new();
+    s2.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into()))
         .with_status(200)
-        .with_body(r#"[{"number":3,"html_url":"u"}]"#)
+        .with_body("[]")
         .create();
-    s.mock("PATCH", "/repos/o/n/pulls/3").with_status(200).with_body(r#"{"number":3,"html_url":"u"}"#).create();
-    let p = h.project(&s.url());
-    p.git.push(&p.push_url, "bl-1").unwrap(); // get the branch onto the remote first
-    p.teardown("bl-1").unwrap();
-    assert!(!gitcmd(&h.bare).args(["rev-parse", "--verify", "refs/heads/work/bl-1"]).output().unwrap().status.success());
-}
-
-#[test]
-fn teardown_skips_close_when_no_pr() {
-    let h = Harness::new();
-    let mut s = mockito::Server::new();
-    s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into())).with_status(200).with_body("[]").create();
-    let p = h.project(&s.url());
-    p.teardown("bl-1").unwrap(); // no PR, no branch on remote — clean no-op
-}
-
-#[test]
-fn pr_merged_reports_merge_state() {
-    let cases = [(r#"[{"number":1,"html_url":"u","merged":true}]"#, true), (r#"[{"number":1,"html_url":"u","merged":false}]"#, false), ("[]", false)];
-    for (body, want) in cases {
-        let h = Harness::new();
-        let mut s = mockito::Server::new();
-        s.mock("GET", mockito::Matcher::Regex(r"^/repos/o/n/pulls".into())).with_status(200).with_body(body).create();
-        let p = h.project(&s.url());
-        assert_eq!(p.pr_merged("bl-1").unwrap(), want, "body={body}");
-    }
+    let dir2 = tempfile::tempdir().unwrap();
+    assert_eq!(project(dir2.path(), &s2.url()).merged_pr("bl-p").unwrap(), None);
 }

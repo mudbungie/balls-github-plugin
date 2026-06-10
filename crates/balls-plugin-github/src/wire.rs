@@ -1,13 +1,18 @@
-//! §7 plugin wire payload — the slice the forge plugin decodes off stdin.
+//! §7 plugin wire payload + the `bl list --json` slice the forge plugin decodes.
 //!
 //! balls-core only ever SERIALIZES the wire (`crate::wire` there); a plugin owns
 //! the matching deserialize for exactly the fields it needs. There is **no
-//! return channel** (§7): the forge plugin contributes by shelling `bl` and
-//! pushing the project repo, never by printing values balls parses back. Its
-//! stdout is a human hint (the PR URL); core forwards it verbatim and parses
-//! nothing.
+//! return channel** (§7): the forge plugin contributes by shelling `bl`, never
+//! by printing values balls parses back. Its stdout is the §6 human product
+//! (the minted gate child's id; sync's resolved-gate lines); core forwards it
+//! verbatim and parses nothing.
+//!
+//! Both hooks this plugin handles are POST-side, so the op-start ball arrives
+//! as `previous_state` (§7: the post wire has NO `current_state` — the landed
+//! ball is derived from git, never the wire) and the id as the sealed `bl-id`
+//! trailer in `metadata`.
 
-use balls_github_shared::error::Result;
+use balls_github_shared::error::{PluginError, Result};
 pub use balls_github_shared::wire::{metadata_id, Binding, Metadata};
 use serde::Deserialize;
 
@@ -21,21 +26,30 @@ pub struct Wire {
     pub binding: Binding,
     #[serde(default)]
     pub metadata: Option<Metadata>,
+    /// The op-start ball on a post wire (`pre`'s `current_state` slid over, §7).
     #[serde(default)]
-    pub current_state: Option<State>,
+    pub previous_state: Option<State>,
     #[serde(default)]
     pub rolling_back: Option<String>,
 }
 
-/// The ball fields forge reads: the title (the gate-child + PR subject) and a
-/// per-task `target_branch` override (a preserved extra key, §3) that wins over
-/// the config default for the PR base.
+/// The ball fields forge reads off the wire: the title (the gate child's
+/// subject source) and the preserved extras (§3) — flattened unknown keys,
+/// where the plugin's own join key lives on a gate child.
 #[derive(Debug, Default, Deserialize)]
 pub struct State {
     #[serde(default)]
     pub title: String,
-    #[serde(default)]
-    pub target_branch: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl State {
+    /// A preserved extra's string value, if the key is set.
+    #[must_use]
+    pub fn extra_str(&self, key: &str) -> Option<&str> {
+        self.extra.get(key).and_then(serde_json::Value::as_str)
+    }
 }
 
 impl Wire {
@@ -45,30 +59,37 @@ impl Wire {
     }
 }
 
-/// Resolve the op's task id. A post hook (`claim`/`unclaim`) carries it as the
-/// sealed `bl-id` trailer in `metadata`; a pre hook (`close`) does not — it is
-/// read back from the single changed `tasks/<id>.md` the op staged (`changed`
-/// lists those paths, run lazily so git is only spawned on the pre path). Zero
-/// or many changed task files is a protocol error.
-pub fn resolve_id(
-    metadata: Option<&Metadata>,
-    changed: impl FnOnce() -> Result<Vec<String>>,
-) -> Result<String> {
-    if let Some(id) = metadata_id(metadata) {
-        return Ok(id.to_string());
-    }
-    let ids: Vec<String> = changed()?
-        .iter()
-        .filter_map(|p| p.strip_prefix("tasks/").and_then(|s| s.strip_suffix(".md")))
+/// The sealed id off a post wire — every hook this plugin handles is post-side,
+/// so a missing `bl-id` trailer is a protocol error, never a fallback.
+pub fn sealed_id(metadata: Option<&Metadata>) -> Result<String> {
+    metadata_id(metadata)
         .map(str::to_string)
-        .collect();
-    match ids.as_slice() {
-        [id] => Ok(id.clone()),
-        other => Err(balls_github_shared::error::PluginError::Other(format!(
-            "expected exactly one changed task file, found {}",
-            other.len()
-        ))),
-    }
+        .ok_or_else(|| PluginError::Other("post wire carried no bl-id trailer".into()))
+}
+
+/// A gate child the plugin minted: its id and the parent it gates. The join is
+/// the plugin-namespaced preserved key (§3) the mint stamps on the gate child —
+/// derived on every read, never stored plugin-side.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Gate {
+    pub id: String,
+    pub parent: String,
+}
+
+/// Decode `bl list --json` (the bedrock projection: stored frontmatter + `id`)
+/// into this plugin's open gate children — the rows carrying the preserved
+/// `key`. Rows without the key (everyone else's tasks) are simply skipped.
+pub fn open_gates(list_json: &str, key: &str) -> Result<Vec<Gate>> {
+    let rows: Vec<serde_json::Value> = serde_json::from_str(list_json)
+        .map_err(|e| PluginError::Other(format!("bad `bl list --json` output: {e}")))?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let parent = row.get(key)?.as_str()?;
+            let id = row.get("id")?.as_str()?;
+            Some(Gate { id: id.to_string(), parent: parent.to_string() })
+        })
+        .collect())
 }
 
 #[cfg(test)]
