@@ -5,9 +5,11 @@
 //! moments around an ordinary close-blocker gate child (§10):
 //!
 //! - **`claim.post`** — mint the **review gate child** of the claimed task: one
-//!   `bl create --subtask-of <id>` (the bl-788e parent + close-gate sugar — this
-//!   plugin is its first programmatic consumer), carrying the plugin-namespaced
-//!   preserved key (§3 extras) that joins gate → parent. Minting SKIPS when the
+//!   `bl create --parent <id> --blocks close` — an EXPLICIT close-gate edge
+//!   (since bl-5d9a `--subtask-of` gates the parent's CLAIM, not its close, so
+//!   bl-788e's one-word close-gate sugar was superseded; the canonical spelling
+//!   matches bl-chore), carrying the plugin-namespaced preserved key (§3 extras)
+//!   that joins gate → parent. Minting SKIPS when the
 //!   claimed task is itself one of the plugin's gate children (no
 //!   gates-for-gates) and when a standing open gate for this parent already
 //!   exists (an unclaim-and-reclaim reuses it). The minted id is the hook's
@@ -46,8 +48,9 @@ pub trait Forge {
     /// Every OPEN gate child of this plugin's — the preserved-key scan over
     /// `bl list --json` (closed gates have no file, so absence = resolved).
     fn open_gates(&self) -> Result<Vec<Gate>>;
-    /// Mint the review gate child of `parent` (`bl create --subtask-of` + the
-    /// join key), returning the minted id.
+    /// Mint the review gate child of `parent` (`bl create --parent <id>
+    /// --blocks close` — an explicit close-gate edge, bl-5d9a — + the join key),
+    /// returning the minted id.
     fn mint_gate(&self, parent: &str, title: &str) -> Result<String>;
     /// `bl close` the gate child (resolve on merge, or the mint rollback —
     /// close is the one retirement, §10).

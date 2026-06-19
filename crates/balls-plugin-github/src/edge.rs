@@ -66,9 +66,11 @@ fn api_base(args: &[String]) -> &str {
     args.get(1).map_or("https://api.github.com", String::as_str)
 }
 
-/// The committed config path on the landing: `<landing>/config/plugins/<name>.json`.
+/// The committed config path on the landing:
+/// `<landing>/config/plugins/<name>/config.json` — the plugin's own territory
+/// subdir (§4 severability), matching the issues plugin and bl-chore.
 fn config_path(landing: &str, name: &str) -> PathBuf {
-    Path::new(landing).join("config").join("plugins").join(format!("{name}.json"))
+    Path::new(landing).join("config").join("plugins").join(name).join("config.json")
 }
 
 /// Forward the hook's optional stdout product (§6: the minted gate child's id,

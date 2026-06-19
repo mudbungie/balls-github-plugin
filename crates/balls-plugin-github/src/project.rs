@@ -57,7 +57,7 @@ impl Forge for Project {
         wire::open_gates(&self.bl.list_json()?, &self.key)
     }
 
-    /// Mint = `create --subtask-of` + stamp the join key. If the stamp fails,
+    /// Mint = `create --parent <id> --blocks close` + stamp the join key. If the stamp fails,
     /// the half-minted gate is withdrawn inline (best-effort) before the error
     /// surfaces — §14: a FAILING plugin's own rollback is never called, so it
     /// cleans up before exiting non-zero.

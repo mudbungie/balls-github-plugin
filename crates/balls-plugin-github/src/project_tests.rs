@@ -54,7 +54,7 @@ fn mint_gate_creates_then_stamps_the_join_key() {
     let p = project(dir.path(), NO_API);
     assert_eq!(p.mint_gate("bl-p", "Do it").unwrap(), "bl-gate");
     let log = log(dir.path());
-    assert!(log.contains("create --subtask-of bl-p --as alice -- Review gate: Do it"), "{log}");
+    assert!(log.contains("create --parent bl-p --blocks close --as alice -- Review gate: Do it"), "{log}");
     assert!(log.contains("update bl-gate balls-plugin-github=bl-p --as alice"), "{log}");
 }
 

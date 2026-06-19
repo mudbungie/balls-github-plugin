@@ -10,7 +10,7 @@ fn api_base_defaults_or_takes_the_arg() {
 #[test]
 fn config_path_is_under_the_landing() {
     let p = config_path("/land", "balls-plugin-github");
-    assert!(p.ends_with("config/plugins/balls-plugin-github.json"));
+    assert!(p.ends_with("config/plugins/balls-plugin-github/config.json"));
     assert!(p.starts_with("/land"));
 }
 

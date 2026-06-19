@@ -1,7 +1,7 @@
 //! Integration coverage for the binary edge (`main.rs`): the §6 `protocol`
-//! self-describe, the usage-error exit path, the env wiring (`BALLS_BIN`, the
-//! import guard, `XDG_STATE_HOME`), and one full pull through the built binary
-//! against a throwaway store + mock GitHub.
+//! self-describe, the usage-error exit path, the env wiring (the `bl` resolved
+//! on `$PATH`, the import guard, `XDG_STATE_HOME`), and one full pull through the
+//! built binary against a throwaway store + mock GitHub.
 
 use assert_cmd::Command;
 use predicates::str::contains;
@@ -26,6 +26,14 @@ fn fake_bl(dir: &Path) -> PathBuf {
     std::fs::write(&p, script).unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
     p
+}
+
+/// Prepend `dir` to the inherited `$PATH` so the fake `bl` shadows any real one.
+fn with_path_prefix(dir: &Path) -> String {
+    match std::env::var("PATH") {
+        Ok(p) => format!("{}:{p}", dir.display()),
+        Err(_) => dir.display().to_string(),
+    }
 }
 
 #[test]
@@ -117,10 +125,13 @@ fn sync_imports_an_external_issue_and_stamps_the_marker() {
         store.display(),
         invocation.display(),
     );
+    // The plugin resolves `bl` on $PATH (core sets no BALLS_BIN; §6/§7); the
+    // fake `bl` lives in `tmp`, so prepend that directory to PATH.
+    let bl_dir = fake_bl(tmp.path()).parent().unwrap().to_path_buf();
     bin()
         .args(["sync", "post"])
         .env("XDG_STATE_HOME", &state)
-        .env("BALLS_BIN", fake_bl(tmp.path()))
+        .env("PATH", with_path_prefix(&bl_dir))
         .write_stdin(payload)
         .assert()
         .success();

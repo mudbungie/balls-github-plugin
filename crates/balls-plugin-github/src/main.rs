@@ -7,7 +7,7 @@
 //! two moments:
 //!
 //! ```text
-//! claim.post = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then mint the review gate child
+//! claim.post = ["bl-delivery", "balls-plugin-github", "bl-tracker"]  # worktree, then mint the review gate child
 //! sync.post  = ["balls-plugin-github"]                            # close the gate child on PR merge
 //! ```
 //!
@@ -60,14 +60,17 @@ fn main() {
 }
 
 /// Resolve the §6 env: the balls-assigned plugin name (also the join key the
-/// gate children carry), the XDG state home (the auth territory base, §1), and
-/// the `bl` to shell back to.
+/// gate children carry) and the XDG state home (the auth territory base, §1).
+/// `bl` is resolved on `$PATH` — core sets only BALLS_PROTOCOL/PLUGIN_NAME/DEPTH
+/// (§6/§7), so a plugin shells `bl` off the triggering invocation's env, exactly
+/// like bl-chore and bl-tracker. `bl_program` stays a field so unit tests inject
+/// a fake binary through the [`Bl`] constructor without mutating global env.
 fn read_env() -> Env {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let state_home = env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
     Env {
         plugin_name: env::var("BALLS_PLUGIN_NAME").unwrap_or_else(|_| USER_AGENT.to_string()),
         state_home,
-        bl_program: env::var_os("BALLS_BL").map_or_else(|| PathBuf::from("bl"), PathBuf::from),
+        bl_program: PathBuf::from("bl"),
     }
 }

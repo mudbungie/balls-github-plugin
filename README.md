@@ -6,7 +6,7 @@ auth/HTTP/config:
 
 | Crate | What it is |
 |---|---|
-| [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge plugin** (subtask model, bl-7bfe — NOT a delivery variant). At `claim.post` it mints a review **gate child** (`bl create --subtask-of <id>`, a normal §10 close-blocker) carrying a plugin-namespaced join key; at `sync.post` it closes each gate child whose parent's `work/<id>` PR has merged. PR submission is git-native work (the worker pushes + opens the PR, `[bl-id]` in the title); there is no forge `close.pre`. Speaks the §6/§7 subprocess protocol. Implements `docs/architecture.md` §10/§11 (FORGE). |
+| [`balls-plugin-github`](crates/balls-plugin-github/) | **Forge plugin** (subtask model, bl-7bfe — NOT a delivery variant). At `claim.post` it mints a review **gate child** (`bl create --parent <id> --blocks close`, an explicit §10 close-gate edge) carrying a plugin-namespaced join key; at `sync.post` it closes each gate child whose parent's `work/<id>` PR has merged. PR submission is git-native work (the worker pushes + opens the PR, `[bl-id]` in the title); there is no forge `close.pre`. Speaks the §6/§7 subprocess protocol. Implements `docs/architecture.md` §10/§11 (FORGE). |
 | [`balls-plugin-github-issues`](crates/balls-plugin-github-issues/) | **Issue-tracker plugin.** Bidirectional mirror between balls tasks and GitHub Issues. balls-side `create`/`update`/`close` mirror to GH issues; an external GH issue close/edit flows back on `sync` by shelling the public verbs (`bl create`/`update`/`close` — there is no return channel, §7). |
 | [`balls-github-shared`](crates/balls-github-shared/) | Library crate. Token I/O, the base `GithubClient` (auth + status mapping + `GET /user`), the shared `RepoConfig` (repo + api_base), and the shared §7 wire shapes (`Binding`, `Metadata`/`metadata_id`). |
 
@@ -24,8 +24,9 @@ balls's participant model is "**one participant = one name**". A forge
   and participates in `create`/`update`/`close`/`sync` to keep GitHub
   Issues in sync with balls tasks.
 
-They are independently configured (separate `config/plugins/<name>.json`
-on the landing) and hold **separate tokens** (separate plugin
+They are independently configured (separate
+`config/plugins/<name>/config.json` on the landing) and hold
+**separate tokens** (separate plugin
 territories) so you can rotate or fine-grain them independently, and they
 are wired into different op-phase hooks (`[hooks]`, §6). None of that
 survives a merge into one binary.

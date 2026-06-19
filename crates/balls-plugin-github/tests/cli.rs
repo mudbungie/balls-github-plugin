@@ -1,6 +1,8 @@
 //! End-to-end tests: run the actual binary so `main` and the `edge` dispatch are
-//! exercised (and counted by coverage). The forge plugin shells back to `bl`
-//! (faked via `BALLS_BL`) and only the merged-PR probe touches HTTP (mockito).
+//! exercised (and counted by coverage). The forge plugin resolves `bl` on
+//! `$PATH` (core sets no BALLS_BL; §6/§7), so the fake `bl` is injected by
+//! prepending its directory to PATH; only the merged-PR probe touches HTTP
+//! (mockito).
 
 use assert_cmd::Command;
 use std::os::unix::fs::PermissionsExt;
@@ -36,9 +38,9 @@ fn fake_bl(proj: &Path) -> PathBuf {
 }
 
 fn write_config(landing: &Path, api_base: &str) {
-    let dir = landing.join("config/plugins");
+    let dir = landing.join(format!("config/plugins/{NAME}"));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(format!("{NAME}.json")), format!(r#"{{"repo":"o/n","api_base":"{api_base}"}}"#))
+    std::fs::write(dir.join("config.json"), format!(r#"{{"repo":"o/n","api_base":"{api_base}"}}"#))
         .unwrap();
 }
 
@@ -58,13 +60,24 @@ fn hook(tmp: &Path, op: &str, phase: &str, wire: &str, api_base: &str) -> Comman
     std::fs::create_dir_all(&proj).unwrap();
     write_config(&tmp.join("landing"), api_base);
     write_token(&tmp.join("state"), api_base);
+    // The fake `bl` lives in `proj`; the plugin resolves `bl` on $PATH, so
+    // prepend that directory (core injects no BALLS_BL — §6/§7).
+    let bl_dir = fake_bl(&proj).parent().unwrap().to_path_buf();
     let mut c = bin();
     c.args([op, phase])
         .env("XDG_STATE_HOME", tmp.join("state"))
         .env("BALLS_PLUGIN_NAME", NAME)
-        .env("BALLS_BL", fake_bl(&proj))
+        .env("PATH", with_path_prefix(&bl_dir))
         .write_stdin(wire.to_string());
     c
+}
+
+/// Prepend `dir` to the inherited `$PATH` so the fake `bl` shadows any real one.
+fn with_path_prefix(dir: &Path) -> String {
+    match std::env::var("PATH") {
+        Ok(p) => format!("{}:{p}", dir.display()),
+        Err(_) => dir.display().to_string(),
+    }
 }
 
 /// A claim.post wire for `<tmp>/proj`, with `extra_state` spliced into
@@ -84,11 +97,10 @@ fn bl_log(tmp: &Path) -> String {
 
 #[test]
 fn protocol_self_describes() {
-    // env stripped so the read_env fallbacks (no XDG/BL/NAME) are exercised
+    // env stripped so the read_env fallbacks (no XDG/NAME) are exercised
     bin()
         .arg("protocol")
         .env_remove("XDG_STATE_HOME")
-        .env_remove("BALLS_BL")
         .env_remove("BALLS_PLUGIN_NAME")
         .assert()
         .success()
@@ -122,7 +134,7 @@ fn claim_post_mints_the_gate_child_and_prints_its_id() {
         .stdout(predicates::str::contains("bl-gate"));
     let log = bl_log(tmp.path());
     assert!(log.contains("list --json"), "{log}"); // the standing-gate check
-    assert!(log.contains("create --subtask-of bl-1 --as alice -- Review gate: Do it"), "{log}");
+    assert!(log.contains("create --parent bl-1 --blocks close --as alice -- Review gate: Do it"), "{log}");
     assert!(log.contains(&format!("update bl-gate {NAME}=bl-1 --as alice")), "{log}");
 }
 

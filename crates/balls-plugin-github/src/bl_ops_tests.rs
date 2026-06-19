@@ -12,7 +12,7 @@ fn fake_bl(dir: &Path, body: &str) -> PathBuf {
 }
 
 #[test]
-fn create_gate_parses_id_and_uses_the_subtask_sugar() {
+fn create_gate_parses_id_and_mints_an_explicit_close_gate() {
     let dir = tempfile::tempdir().unwrap();
     // print the id on stdout, record argv to args.txt in cwd
     let bl = fake_bl(dir.path(), r#"echo bl-newid; printf '%s\n' "$*" > args.txt"#);
@@ -20,8 +20,9 @@ fn create_gate_parses_id_and_uses_the_subtask_sugar() {
 
     assert_eq!(runner.create_gate("bl-p", "Do it").unwrap(), "bl-newid");
     let args = std::fs::read_to_string(dir.path().join("args.txt")).unwrap();
-    // --subtask-of = parent + reciprocal close-gate in one word (bl-788e, §10).
-    assert!(args.contains("create --subtask-of bl-p --as alice"), "args: {args}");
+    // The gate is an EXPLICIT close-gate edge: `--parent X --blocks close`, not
+    // `--subtask-of` (which gates X's CLAIM since bl-5d9a; bl-788e sugar dropped).
+    assert!(args.contains("create --parent bl-p --blocks close --as alice"), "args: {args}");
     // The task-sourced title rides behind `--` (end-of-options): a hostile
     // `-`-leading title can never hijack a flag.
     assert!(args.contains("-- Review gate: Do it"), "args: {args}");

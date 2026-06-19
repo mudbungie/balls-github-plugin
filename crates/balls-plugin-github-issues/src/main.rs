@@ -38,7 +38,9 @@ fn main() {
     let env = Env {
         xdg,
         cwd: &cwd,
-        bl_bin: shellback::resolve_bin(env::var_os("BALLS_BIN")),
+        // Core sets only BALLS_PROTOCOL/PLUGIN_NAME/DEPTH (§6/§7); `bl` resolves
+        // on $PATH off the triggering invocation's env, like bl-tracker/bl-chore.
+        bl_bin: std::ffi::OsString::from("bl"),
         importing: env::var_os(shellback::IMPORT_GUARD).is_some(),
         default_api_base: "https://api.github.com".to_string(),
     };

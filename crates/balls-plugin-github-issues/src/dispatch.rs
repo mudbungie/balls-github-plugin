@@ -35,7 +35,8 @@ pub struct Env<'a> {
     pub xdg: Xdg,
     /// The directory a human ran an auth subcommand from (the project root).
     pub cwd: &'a Path,
-    /// The `bl` binary the pull side shells (`$BALLS_BIN` or `bl`).
+    /// The `bl` binary the pull side shells — `bl` resolved on `$PATH` (core
+    /// sets no BALLS_BIN; §6/§7). Held as a field so tests inject a fake.
     pub bl_bin: std::ffi::OsString,
     /// `true` when the import guard env is set — a pull-driven nested op, so the
     /// push handler suppresses itself.

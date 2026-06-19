@@ -1,9 +1,11 @@
 //! The `bl` shell-back — the forge plugin's gate-child lifecycle (§6 bounded
 //! shell-back: one level deep, never re-triggering its own op). A plugin has no
 //! return channel (§7), so it manages the gate child by RUNNING `bl` itself:
-//! `create --subtask-of` to mint it (the bl-788e parent + close-gate sugar),
-//! `update` to stamp the join key, `close` to resolve it (the one retirement,
-//! §10), and `list --json` to derive the open-gate set.
+//! `create --parent <id> --blocks close` to mint it (an explicit close-gate
+//! edge — since bl-5d9a `--subtask-of` gates the parent's CLAIM, not its close,
+//! so the close-gate must be spelled out; bl-788e's one-word sugar was
+//! superseded), `update` to stamp the join key, `close` to resolve it (the one
+//! retirement, §10), and `list --json` to derive the open-gate set.
 //!
 //! The `bl` program path and the `cwd`/`actor` are injected by the edge (the
 //! bl-bfa8 rule: no env reads in the lib), so tests drive a fake `bl` without
@@ -69,9 +71,13 @@ impl Bl {
         c
     }
 
-    /// `bl create --subtask-of <parent>` — mint the review gate child (parent
-    /// pointer + reciprocal close-gate in one word, §10), returning the id it
-    /// prints on stdout.
+    /// `bl create --parent <parent> --blocks close` — mint the review gate
+    /// child as an explicit close-gate edge (§10), returning the id it prints on
+    /// stdout. The two flags are spelled out, NOT folded into `--subtask-of`:
+    /// since bl-5d9a `--subtask-of X` gates X's CLAIM (it lands a
+    /// child+claim blocker on the parent), so the close-gate must be the
+    /// explicit `--parent X --blocks close` (bl-788e's one-word close-gate sugar
+    /// was superseded). Canonical spelling, mirroring bl-chore's `render_create`.
     ///
     /// `title` is task-sourced (untrusted) and rides a positional, so it goes
     /// behind the `--` end-of-options separator (the bl-d31f core seam). The
@@ -80,8 +86,9 @@ impl Bl {
     /// formatting.
     pub fn create_gate(&self, parent: &str, title: &str) -> Result<String> {
         let subject = format!("Review gate: {title}");
-        let out =
-            self.run(&["create", "--subtask-of", parent, "--as", &self.actor, "--", &subject])?;
+        let out = self.run(&[
+            "create", "--parent", parent, "--blocks", "close", "--as", &self.actor, "--", &subject,
+        ])?;
         parse_id(&out)
             .ok_or_else(|| PluginError::Other(format!("bl create minted no id (stdout: {out:?})")))
     }

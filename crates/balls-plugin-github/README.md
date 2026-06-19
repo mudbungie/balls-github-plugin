@@ -8,8 +8,8 @@ never opens a PR, and never hooks `close.pre`. It does exactly two
 things:
 
 - **`claim.post`** — mint the review gate child of the claimed task
-  (one `bl create --subtask-of <id>`: parent pointer + reciprocal
-  close-gate in a word), stamped with a plugin-namespaced preserved
+  (one `bl create --parent <id> --blocks close` — an explicit
+  close-gate edge), stamped with a plugin-namespaced preserved
   key that joins gate → parent.
 - **`sync.post`** — for each open gate child, check the parent's PR by
   its `work/<parent>` head branch; merged ⇒ `bl close` the gate child,
@@ -23,7 +23,7 @@ delivery path, kind-blind.
 
 It speaks the §6/§7 **subprocess protocol** (`<bin> <op> <phase>`, the
 §7 wire on stdin, no return channel) — the same contract the shipped
-`bl-delivery` and `tracker` plugins use.
+`bl-delivery` and `bl-tracker` plugins use.
 
 This crate is one of two binaries in the
 [`balls-github-plugin` workspace](../../README.md); the sibling
@@ -43,7 +43,7 @@ hooks in `config/plugins.toml`'s `[hooks]`:
 
 ```toml
 [hooks]
-"claim.post" = ["bl-delivery", "balls-plugin-github", "tracker"]  # worktree, then mint the review gate child
+"claim.post" = ["bl-delivery", "balls-plugin-github", "bl-tracker"]  # worktree, then mint the review gate child
 "sync.post"  = ["balls-plugin-github"]                            # close the gate child on PR merge
 # every other hook keeps the default schedule — there is no forge close.pre
 ```
@@ -65,9 +65,10 @@ Install the matching pre-commit hook with `scripts/install-hooks.sh`.
 ## Configure
 
 Git-tracked, non-secret, on the landing at
-`config/plugins/<plugin-name>.json` (the bundle `bl install` carries;
-`<plugin-name>` is the name balls invokes it under via
-`BALLS_PLUGIN_NAME`, e.g. `balls-plugin-github`):
+`config/plugins/<plugin-name>/config.json` — the plugin's own territory
+subdir (the bundle `bl install` carries; `<plugin-name>` is the name
+balls invokes it under via `BALLS_PLUGIN_NAME`, e.g.
+`balls-plugin-github`, matching the issues plugin and bl-chore):
 
 ```json
 {
@@ -105,7 +106,7 @@ pull-request read).
 
 | Hook | Behaviour |
 |---|---|
-| `claim post` | Mint the review gate child: `bl create --subtask-of <id> -- "Review gate: <title>"` (the bl-788e sugar — parent + close-gate in one word), then stamp the join key `bl update <gate> <plugin-name>=<id>`. Prints the minted id (the §6 stdout product). **Skips** when the claimed task itself carries the plugin's key (it IS a gate child — no gates-for-gates) and when an open gate for this parent already exists (an unclaim-and-reclaim reuses it). |
+| `claim post` | Mint the review gate child: `bl create --parent <id> --blocks close -- "Review gate: <title>"` (an explicit close-gate edge — since bl-5d9a `--subtask-of` gates the parent's *claim*, not its close, so bl-788e's one-word sugar was superseded; the spelling matches bl-chore), then stamp the join key `bl update <gate> <plugin-name>=<id>`. Prints the minted id (the §6 stdout product). **Skips** when the claimed task itself carries the plugin's key (it IS a gate child — no gates-for-gates) and when an open gate for this parent already exists (an unclaim-and-reclaim reuses it). |
 | `sync post` | Scan `bl list --json` for open tasks carrying the plugin's key; for each, poll the PR whose head is `work/<parent>`; when merged, `bl close` the gate child with the PR URL in the note → the parent's next `bl close` unblocks. Prints one line per resolved gate. |
 
 **Rollback (§14):** rollback of `claim post` deletes (closes) the

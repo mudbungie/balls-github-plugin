@@ -86,15 +86,23 @@ balls-plugin-github-issues auth-check   # exit 0 if the stored token is valid
 ## Wiring
 
 Add the plugin to the landing's `config/plugins.toml` `[hooks]` — push on the
-verb posts, pull on `sync.post` (after the tracker has imported the store):
+verb posts, pull on `sync.post` (after bl-tracker has imported the store):
 
 ```toml
 [hooks]
-"create.post" = ["tracker", "github-issues"]
-"update.post" = ["tracker", "github-issues"]
-"close.post"  = ["bl-delivery", "tracker", "github-issues"]
+"create.post" = ["github-issues", "bl-tracker"]
+"update.post" = ["github-issues", "bl-tracker"]
+"close.post"  = ["bl-delivery", "github-issues", "bl-tracker"]
 "sync.post"   = ["github-issues"]
 ```
+
+On the WRITE side (the verb posts) only the irreversible push (`bl-tracker`) and
+the delivery squash (`bl-delivery`) sort LAST; the reversible `github-issues`
+mirror PREPENDS, so an aborted op stays local-reversible — its GitHub write has
+not yet been "sealed in" behind bl-tracker's push (balls `docs/architecture.md`
+§6). On the PULL side (`sync.post`) the order is the opposite intent:
+`github-issues` runs AFTER bl-tracker has imported the store, so here it is left
+where it is — do not reorder it.
 
 ## Migrating from legacy balls
 

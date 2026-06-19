@@ -5,7 +5,7 @@
 //! changes to apply. Instead it drives the PUBLIC verb surface — `bl create` /
 //! `bl update` / `bl close` — exactly as the §6 invocation-tree cap anticipates
 //! ("a plugin shelling back"). Each shelled verb is a normal sealed op that runs
-//! its own hooks (the tracker pushes it). The depth odometer (`BALLS_PLUGIN_DEPTH`)
+//! its own hooks (bl-tracker pushes it). The depth odometer (`BALLS_PLUGIN_DEPTH`)
 //! bounds it; a sync→create→create.post chain is shallow and never re-triggers
 //! `sync`, so it never nears the cap.
 //!
@@ -126,13 +126,6 @@ pub fn extract_id(stdout: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Resolve the `bl` binary at the process edge: `$BALLS_BIN` if set (the test
-/// seam), else `bl` from PATH.
-#[must_use]
-pub fn resolve_bin(env_bin: Option<OsString>) -> OsString {
-    env_bin.unwrap_or_else(|| OsString::from("bl"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,12 +138,6 @@ mod tests {
         assert_eq!(extract_id("noise bl-aaaa then bl-bbbb").as_deref(), Some("bl-bbbb"));
         assert_eq!(extract_id("nothing here"), None);
         assert_eq!(extract_id("bl-xyz too short hex"), None); // non-hex
-    }
-
-    #[test]
-    fn resolve_bin_prefers_env() {
-        assert_eq!(resolve_bin(Some(OsString::from("/x/bl"))), OsString::from("/x/bl"));
-        assert_eq!(resolve_bin(None), OsString::from("bl"));
     }
 
     /// Write an executable fake `bl` that records argv + cwd + the guard env and
