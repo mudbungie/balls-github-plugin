@@ -9,8 +9,9 @@ role, different state; see the [workspace README](../../README.md).
 
 ## How it speaks to balls
 
-balls dispatches the binary as `balls-plugin-github-issues <op> <phase>` with the
-§7 payload on stdin, and reads `balls-plugin-github-issues protocol` once at
+balls dispatches the binary as `github-issues <op> <phase>` (the schedule name —
+`make install` drops the crate's binary under that name beside `bl`) with the
+§7 payload on stdin, and reads `github-issues protocol` once at
 install to validate the binding. **There is no return channel** (§7): the plugin
 never prints state for balls to merge. Instead:
 
@@ -79,8 +80,8 @@ directory; it validates the token and stores it in the plugin's territory
 (mode `0600`):
 
 ```sh
-echo "$GITHUB_PAT" | balls-plugin-github-issues auth-setup
-balls-plugin-github-issues auth-check   # exit 0 if the stored token is valid
+echo "$GITHUB_PAT" | github-issues auth-setup
+github-issues auth-check   # exit 0 if the stored token is valid
 ```
 
 ## Wiring
@@ -121,7 +122,7 @@ from the committed config, the token from the territory keyed on the cwd, like
 ```sh
 # extract the legacy task JSON (e.g. from the pre-cutover store branch)
 git archive balls-archive .balls/tasks | tar -x -C /tmp/legacy
-balls-plugin-github-issues adopt /tmp/legacy/.balls/tasks \
+github-issues adopt /tmp/legacy/.balls/tasks \
     "$XDG_STATE_HOME/balls/clones/<clone>/config/config/plugins/github-issues/config.json"
 ```
 

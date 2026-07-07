@@ -56,7 +56,9 @@ no `external.*` projection at all — it is stateless across ops, §11.)
 make build       # cargo build --release --workspace
 make test        # cargo test --workspace
 make check       # tests + workspace clippy (-D warnings) + 300-line cap + 100% coverage
-make install     # builds and installs binaries to ~/.local/bin/
+make install     # builds and installs binaries to ~/.local/bin/ (the issues
+                 # binary lands as `github-issues` — its schedule name, so bl's
+                 # by-name binding finds it beside `bl` with no --bin step)
 make clean
 ```
 

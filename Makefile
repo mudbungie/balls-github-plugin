@@ -16,10 +16,15 @@ check: test
 	scripts/check-line-lengths.sh
 	scripts/check-coverage.sh
 
+# The issues binary installs under its SCHEDULE name: bl binds a hooked name
+# to the same-named file beside `bl` (or on PATH), so `github-issues` here is
+# what lets `bl install`/`bl prime` wire it with no explicit --bin step. The
+# crate keeps its package name; this line is where the adjacency is made true.
+# The forge binary keeps its crate name — nothing schedules it yet.
 install: build
 	install -d ~/.local/bin
 	install -m 0755 target/release/balls-plugin-github ~/.local/bin/balls-plugin-github
-	install -m 0755 target/release/balls-plugin-github-issues ~/.local/bin/balls-plugin-github-issues
+	install -m 0755 target/release/balls-plugin-github-issues ~/.local/bin/github-issues
 
 clean:
 	cargo clean
